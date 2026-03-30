@@ -1,0 +1,1291 @@
+import React, { useState, useEffect } from 'react';
+import { Download, Edit3, Briefcase, FileText, Search, ExternalLink, Sparkles, Loader2, CheckCircle2, Wand2, RotateCcw, Plus } from 'lucide-react';
+import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
+
+// Add type declaration for AI Studio global functions
+declare global {
+  interface Window {
+    aistudio?: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
+  }
+}
+
+const CV_DATA = {
+  name: "Alejandro Angel",
+  secondLastName: "Duque",
+  summary: "Strategic and data-driven Business Development & Strategy Leader with over 8 years of experience scaling operations, driving revenue growth, and leading cross-functional teams in fast-paced, matrixed environments (including top-tier Fintech and Telecom). Proven track record of owning P&L, formulating Go-to-Market (GTM) strategies, and negotiating high-impact partnerships to unlock new business opportunities. Adept at translating complex data into actionable strategic initiatives that optimize operational efficiency, maximize ROI, and accelerate market expansion. Fluent in English, Spanish, and Portuguese.",
+  experience: [
+    { 
+      company: "Nubank", 
+      role: "Lead of Strategy and Planning", 
+      period: "January 2026 – March 2026",
+      location: "Bogotá, Colombia",
+      bullets: [
+        "Spearheaded strategic planning and OKR definition: Partnered with executive leadership to formulate quarterly and annual business strategies, aligning Product, Finance, and Operations to ensure cohesive execution of company-wide goals.",
+        "Drove business development & market expansion: Identified and evaluated new business opportunities through rigorous market analysis, financial modeling, and competitive benchmarking, directly informing Go-to-Market (GTM) strategies for new financial products.",
+        "Optimized cross-functional operations: Designed and implemented data-driven performance tracking frameworks to monitor business health, identifying bottlenecks and deploying strategic interventions that improved operational efficiency and accelerated time-to-market."
+      ]
+    },
+    { 
+      company: "Liberty Caribbean (Contractor)", 
+      role: "BMC Operations Manager", 
+      period: "November 2025 – January 2026",
+      location: "Bogotá, Colombia",
+      bullets: [
+        "Led operational strategy: Orchestrated the end-to-end business management process, collaborating with regional stakeholders to streamline operations, reduce cost-to-serve, and improve overall service delivery.",
+        "Performance & KPI management: Developed comprehensive business dashboards and tracking mechanisms to monitor key performance indicators (KPIs), translating complex operational data into actionable executive insights.",
+        "Executed strategic cost-reduction initiatives: Identified operational inefficiencies and led cross-functional task forces to implement process improvements, significantly optimizing budget allocation and protecting bottom-line margins."
+      ]
+    },
+    { 
+      company: "Ikonico (Panabel Group)", 
+      role: "General Manager", 
+      period: "May 2021 – March 2025",
+      location: "Bogota, Colombia",
+      bullets: [
+        "P&L Ownership & Revenue Growth: Held full P&L responsibility for a portfolio of premium consumer brands (Montblanc, Bvlgari), driving 47% YoY revenue growth and achieving a 353% ROI through strategic resource allocation and business mix optimization.",
+        "Strategic Partnerships & Business Development: Negotiated and launched high-impact B2B2C partnerships and co-branded campaigns with key financial players (Banco de Occidente, Rappicard), successfully scaling the user base and reducing Customer Acquisition Cost (CAC).",
+        "Omnichannel GTM Strategy: Spearheaded a large-scale omnichannel expansion initiative, integrating digital touchpoints into the physical user journey to capture new market segments and boost brand resonance.",
+        "Cross-Functional Leadership: Directed a matrixed team across Sales, Product, and Finance to execute core strategic initiatives, including a full ERP implementation that unlocked an 11% operational cost reduction."
+      ]
+    },
+    { 
+      company: "Joyerias Bauer (Official Rolex Distributor)", 
+      role: "Head of eCommerce & Digital Strategy", 
+      period: "June 2019 – May 2021",
+      location: "Bogota, Colombia",
+      bullets: [
+        "Scaled New Business Lines: Formulated and executed the Go-to-Market strategy for a new mobile-first e-commerce platform, driving user acquisition and retention efforts that resulted in 211% YoY sales growth.",
+        "Market Expansion: Managed the launch and scaling of digital operations in a new LATAM market (Ecuador), overseeing end-to-end strategic execution and demonstrating the ability to manage complex, fast-paced international projects.",
+        "Global-to-Local Strategy Adaptation: Adapted global corporate guidelines for prestigious brands (Rolex, Patek Philippe) to ensure local market relevance, leading to the operation being recognized by Rolex as a regional success story for best-in-class execution."
+      ]
+    },
+    { 
+      company: "Linio (Rocket Internet / Falabella)", 
+      role: "Key Account Manager", 
+      period: "July 2017 – August 2018",
+      location: "Bogota, Colombia",
+      bullets: [
+        "B2B Account Strategy: Developed and executed joint business plans and partnership initiatives for major global brands (Adidas, Nike, Hasbro), resulting in 74% sales growth (from $5M to $8.7M USD) for the managed portfolio.",
+        "Data-Driven Business Growth: Utilized market insights and internal data to inform product specialization strategies, successfully increasing Average Order Value (AOV) and market share."
+      ]
+    }
+  ],
+  skills: [
+    { category: "Strategic Leadership", items: ["Corporate Strategy", "Go-to-Market (GTM)", "Strategic Partnerships", "P&L Management", "OKR Framework", "Market Expansion", "Financial Modeling"] },
+    { category: "Operations & Management", items: ["Cross-Functional Leadership", "Stakeholder Management", "Process Optimization", "Agile Methodologies", "Project Management", "Change Management"] },
+    { category: "Data & Digital Strategy", items: ["Data-Driven Decision Making", "E-commerce Strategy", "Digital Marketing", "ROI Optimization", "Business Intelligence", "Power BI", "SQL"] }
+  ]
+};
+
+interface JobMatch {
+  title: string;
+  company: string;
+  location: string;
+  link: string;
+  platform?: string;
+  matchScore: number;
+  reason: string;
+  customPitch: string;
+  postedDate?: string;
+  applicantCount?: number;
+  tags?: string[];
+  isTopOpportunity?: boolean;
+}
+
+interface FitAnalysis {
+  originalScore: number;
+  optimizedScore: number;
+  improvement: string;
+  keyChanges: string[];
+}
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<'cv' | 'hunter' | 'optimizer'>('cv');
+  const [isSearchingManual, setIsSearchingManual] = useState(false);
+  const [isSearchingAi, setIsSearchingAi] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [jobResults, setJobResults] = useState<JobMatch[]>([]);
+  const [isSearchingMore, setIsSearchingMore] = useState(false);
+  const [searchPage, setSearchPage] = useState(1);
+  const [searchRecency, setSearchRecency] = useState<'24h' | '7d' | '30d'>('7d');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchLocation, setSearchLocation] = useState('Colombia');
+  const [searchJobType, setSearchJobType] = useState<'all' | 'full-time' | 'contract' | 'internship'>('all');
+  const [searchRemote, setSearchRemote] = useState<'all' | 'remote' | 'on-site' | 'hybrid'>('all');
+  const [searchExpLevel, setSearchExpLevel] = useState<'all' | 'entry' | 'mid' | 'senior' | 'executive'>('all');
+  const [jobDescription, setJobDescription] = useState('');
+  const [targetCompany, setTargetCompany] = useState('');
+  const [targetRole, setTargetRole] = useState('');
+  const [targetAts, setTargetAts] = useState('Workday');
+  const [targetLanguage, setTargetLanguage] = useState('English');
+  const [optimizedCv, setOptimizedCv] = useState<typeof CV_DATA | null>(null);
+  const [fitAnalysis, setFitAnalysis] = useState<FitAnalysis | null>(null);
+  const [useOptimized, setUseOptimized] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hasApiKey, setHasApiKey] = useState(false);
+  const [manualApiKey, setManualApiKey] = useState('');
+  const [showManualInput, setShowManualInput] = useState(false);
+  const [isTestingKey, setIsTestingKey] = useState(false);
+  const [testSuccess, setTestSuccess] = useState(false);
+  const [searchProgress, setSearchProgress] = useState(0);
+  const [searchReasoning, setSearchReasoning] = useState('');
+
+  const REASONING_PHRASES = [
+    "Analyzing your profile for the best fit...",
+    "Scanning LinkedIn for direct job postings...",
+    "Checking Indeed for active vacancies...",
+    "Verifying source authority and website reputation...",
+    "Performing deep link validation to avoid 404s...",
+    "Filtering out catalogs and search result pages...",
+    "Matching your skills with top-tier opportunities...",
+    "Ensuring direct access to application pages...",
+    "Ranking opportunities by match score...",
+    "Finalizing your personalized job matches..."
+  ];
+
+  useEffect(() => {
+    let interval: any;
+    if (isSearching) {
+      setSearchProgress(0);
+      let phraseIndex = 0;
+      setSearchReasoning(REASONING_PHRASES[0]);
+      
+      interval = setInterval(() => {
+        setSearchProgress(prev => {
+          if (prev >= 95) return prev;
+          return prev + (100 - prev) * 0.1;
+        });
+        
+        phraseIndex = (phraseIndex + 1) % REASONING_PHRASES.length;
+        setSearchReasoning(REASONING_PHRASES[phraseIndex]);
+      }, 3000);
+    } else {
+      setSearchProgress(0);
+      setSearchReasoning('');
+    }
+    return () => clearInterval(interval);
+  }, [isSearching]);
+
+  useEffect(() => {
+    console.log("AI Studio Platform API Status:", !!window.aistudio);
+    const checkKey = async () => {
+      if (window.aistudio?.hasSelectedApiKey) {
+        try {
+          const selected = await window.aistudio.hasSelectedApiKey();
+          console.log("API Key already selected:", selected);
+          setHasApiKey(selected);
+        } catch (e) {
+          console.error("Error checking API key status:", e);
+        }
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleSelectKey = async () => {
+    console.log("Attempting to open API key selection dialog...");
+    if (window.aistudio?.openSelectKey) {
+      try {
+        await window.aistudio.openSelectKey();
+        console.log("API key selection dialog triggered successfully.");
+        setHasApiKey(true);
+        setError(null);
+      } catch (e) {
+        console.error("Error opening API key selection dialog:", e);
+        setError("Failed to open the API key selection dialog. Please ensure you are using the AI Studio Build environment.");
+      }
+    } else {
+      console.warn("AI Studio platform API (window.aistudio) is not available.");
+      setShowManualInput(true);
+      setError(null);
+    }
+  };
+
+  const getAiInstance = () => {
+    // Priority: 1. Manually pasted key, 2. Platform selected key, 3. Environment variable
+    const apiKey = manualApiKey || (hasApiKey && process.env.API_KEY ? process.env.API_KEY : (process.env.GEMINI_API_KEY || ''));
+    if (!apiKey) throw new Error("API Key is missing. Please enter an API key or check your environment settings.");
+    return new GoogleGenAI({ apiKey });
+  };
+
+  const testConnection = async () => {
+    setIsTestingKey(true);
+    setTestSuccess(false);
+    setError(null);
+    try {
+      const ai = getAiInstance();
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: "Hello",
+        config: { thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } }
+      });
+      if (response.text) {
+        setTestSuccess(true);
+        setTimeout(() => setTestSuccess(false), 5000);
+      }
+    } catch (err: any) {
+      console.error("Connection test failed:", err);
+      setError("Connection test failed: " + (err.message || "Invalid API key or network error."));
+    } finally {
+      setIsTestingKey(false);
+    }
+  };
+
+  const currentCvData = useOptimized && optimizedCv ? optimizedCv : CV_DATA;
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const optimizeCv = async () => {
+    if (!jobDescription.trim()) return;
+    setIsOptimizing(true);
+    setError(null);
+
+    try {
+      const ai = getAiInstance();
+      const prompt = `You are an expert ATS optimizer and career coach. 
+      Tailor the following CV data to match this specific job opportunity:
+      
+      TARGET COMPANY: ${targetCompany || 'Not specified'}
+      TARGET ROLE: ${targetRole || 'Not specified'}
+      TARGET ATS SYSTEM: ${targetAts || 'Workday'}
+      TARGET LANGUAGE: ${targetLanguage}
+      
+      JOB DESCRIPTION:
+      ${jobDescription}
+      
+      ORIGINAL CV DATA:
+      ${JSON.stringify(CV_DATA)}
+      
+      INSTRUCTIONS:
+      1. Rewrite the 'summary' to emphasize relevant experience for this specific job. Focus on solving the problems mentioned in the job description.
+      2. For each 'experience' item, rewrite the 'bullets' to highlight achievements and skills that match the job description. 
+      3. Use universal, ATS-friendly terminology for skills and achievements.
+      4. DO NOT change names, dates, companies, or roles.
+      5. The tone should be professional, strategic, and subtle—not an obvious copy-paste of the job description. Avoid keyword stuffing.
+      6. Ensure the structure is highly readable for the specified ATS system (${targetAts}).
+      7. IMPORTANT: Translate the entire CV content (summary, experience bullets, skill categories) into ${targetLanguage}.
+      
+      Return a JSON object with two fields:
+      - 'cv': The updated CV data matching the original structure.
+      - 'fitAnalysis': An object with:
+        - 'originalScore': (0-100) How well the original CV matched.
+        - 'optimizedScore': (0-100) How well the optimized CV matches.
+        - 'improvement': A brief explanation of the key improvements made.
+        - 'keyChanges': An array of the top 3-4 strategic changes made.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              cv: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  secondLastName: { type: Type.STRING },
+                  summary: { type: Type.STRING },
+                  experience: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        company: { type: Type.STRING },
+                        role: { type: Type.STRING },
+                        period: { type: Type.STRING },
+                        location: { type: Type.STRING },
+                        bullets: { type: Type.ARRAY, items: { type: Type.STRING } }
+                      },
+                      required: ["company", "role", "period", "location", "bullets"]
+                    }
+                  },
+                  skills: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        category: { type: Type.STRING },
+                        items: { type: Type.ARRAY, items: { type: Type.STRING } }
+                      },
+                      required: ["category", "items"]
+                    }
+                  }
+                },
+                required: ["name", "secondLastName", "summary", "experience", "skills"]
+              },
+              fitAnalysis: {
+                type: Type.OBJECT,
+                properties: {
+                  originalScore: { type: Type.NUMBER },
+                  optimizedScore: { type: Type.NUMBER },
+                  improvement: { type: Type.STRING },
+                  keyChanges: { type: Type.ARRAY, items: { type: Type.STRING } }
+                },
+                required: ["originalScore", "optimizedScore", "improvement", "keyChanges"]
+              }
+            },
+            required: ["cv", "fitAnalysis"]
+          }
+        }
+      });
+
+      if (!response.text) throw new Error("Failed to optimize CV.");
+      
+      let result;
+      try {
+        result = JSON.parse(response.text);
+      } catch (e) {
+        const jsonMatch = response.text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          result = JSON.parse(jsonMatch[0]);
+        } else {
+          throw e;
+        }
+      }
+      
+      setOptimizedCv(result.cv);
+      setFitAnalysis(result.fitAnalysis);
+      setUseOptimized(true);
+      setActiveTab('cv');
+    } catch (err: any) {
+      console.error("Optimization error:", err);
+      const errorMessage = err.message || String(err);
+      if (errorMessage.includes("API key not valid") || errorMessage.includes("INVALID_ARGUMENT") || errorMessage.includes("API_KEY_INVALID")) {
+        setHasApiKey(false);
+        setError("The API key is invalid. Please click 'Select API Key' below to provide a valid Google Cloud API key.");
+      } else if (errorMessage.includes("429") || errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("quota")) {
+        setError("You have exceeded your Gemini API quota. This usually means you've made too many requests in a short period on a free-tier key. Please wait a minute and try again, or check your billing settings at ai.google.dev.");
+      } else {
+        setError(errorMessage || "Failed to optimize CV. Please try again.");
+      }
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
+  const findJobs = async (isAiSelection = false, isLoadMore = false) => {
+    if (isLoadMore) {
+      setIsSearchingMore(true);
+    } else {
+      setIsSearching(true);
+      if (isAiSelection) setIsSearchingAi(true);
+      else setIsSearchingManual(true);
+      setJobResults([]);
+      setSearchPage(1);
+    }
+    
+    setError(null);
+    const currentPage = isLoadMore ? searchPage + 1 : 1;
+    
+    try {
+      const ai = getAiInstance();
+      
+      let searchPrompt = "";
+      const filterContext = `
+        - Job Type: ${searchJobType === 'all' ? 'Any' : searchJobType}
+        - Remote Status: ${searchRemote === 'all' ? 'Any' : searchRemote}
+        - Experience Level: ${searchExpLevel === 'all' ? 'Any' : searchExpLevel}
+      `;
+
+      if (isAiSelection) {
+        searchPrompt = `Analyze this candidate's profile and find the best matching job opportunities across major global and local job boards (LinkedIn, Indeed, Glassdoor, Computrabajo, El Empleo, etc.):
+        - Name: ${CV_DATA.name}
+        - Summary: ${CV_DATA.summary}
+        - Key Experience: ${CV_DATA.experience.map(e => `${e.role} at ${e.company}`).join(', ')}
+        - Skills: ${CV_DATA.skills.map(s => s.items.join(', ')).join(', ')}
+        
+        Search for real, active job postings in "${searchLocation}".
+        Filters:
+        ${filterContext}
+        
+        Focus on finding the most recent opportunities from the last ${searchRecency === '24h' ? '24 hours' : searchRecency === '7d' ? '7 days' : '30 days'}.
+        This is page ${currentPage} of results. Find different results than previous searches.`;
+      } else {
+        searchPrompt = `Search for real, active job postings for "${searchQuery}" in "${searchLocation}" across major global and local job boards (LinkedIn, Indeed, Glassdoor, Computrabajo, El Empleo, etc.). 
+        Filters:
+        ${filterContext}
+        
+        Focus on finding the most recent opportunities from the last ${searchRecency === '24h' ? '24 hours' : searchRecency === '7d' ? '7 days' : '30 days'}.
+        This is page ${currentPage} of results. Find different results than previous searches.`;
+      }
+
+      const prompt = `${searchPrompt}
+      
+      After finding the jobs, analyze them against the candidate's profile.
+      
+      CRITICAL SEARCH STRATEGY (AUTHORITY & COST EFFICIENCY):
+      - Use the googleSearch tool with MANDATORY site operators to find jobs ONLY on HIGH-AUTHORITY platforms.
+      - STEP 1: Search LinkedIn (site:linkedin.com/jobs/view)
+      - STEP 2: Search Indeed (site:indeed.com/viewjob)
+      - STEP 3: Search Glassdoor (site:glassdoor.com/job-listing)
+      - ONLY if results are insufficient, search local leaders (site:computrabajo.com.co, site:elempleo.com).
+      - Use the 'tbs=qdr:${searchRecency === '24h' ? 'd' : searchRecency === '7d' ? 'w' : 'm'}' parameter.
+      
+      ZERO TOLERANCE FOR BROKEN LINKS & CATALOGS:
+      - DISCARD any link containing "/jobs/search", "/jobs/collections", "/jobs/index", or "/jobs/catalog".
+      - DISCARD any link that leads to a list of jobs rather than a single job description.
+      - The link MUST be a direct "view" URL (e.g., linkedin.com/jobs/view/...).
+      - NEVER provide a link to a company's general career portal.
+      - NEVER guess or hallucinate a URL.
+      
+      SOURCE AUTHORITY:
+      - Prioritize LinkedIn and Indeed above all else.
+      - Discard results from obscure "job aggregator" sites (e.g., jooble, ziprecruiter, etc.) as they often lead to 404s.
+      
+      QUANTITY: Return 10-15 HIGH-QUALITY, VERIFIED matches. Quality over quantity.
+      
+      Return the results as a JSON array of objects with these fields:
+      - title, company, location, link (EXACT VERIFIED URL), platform (e.g. "LinkedIn", "Indeed", "Computrabajo"), matchScore (0-100), reason (why it matches), customPitch (2-sentence application pitch).
+      - postedDate: (e.g. "2 days ago", "Today")
+      - applicantCount: (estimated number of applicants if available)
+      - tags: (array of strings like "Top Company", "Verified Source", "Fortune 500")
+      - isTopOpportunity: (boolean, true if matchScore > 85 and company is reputable)
+      
+      Sort results by matchScore (descending).`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                company: { type: Type.STRING },
+                location: { type: Type.STRING },
+                link: { type: Type.STRING },
+                platform: { type: Type.STRING },
+                matchScore: { type: Type.NUMBER },
+                reason: { type: Type.STRING },
+                customPitch: { type: Type.STRING },
+                postedDate: { type: Type.STRING },
+                applicantCount: { type: Type.NUMBER },
+                tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                isTopOpportunity: { type: Type.BOOLEAN }
+              },
+              required: ["title", "company", "location", "link", "platform", "matchScore", "reason", "customPitch"]
+            }
+          }
+        }
+      });
+
+      if (!response.text) {
+        throw new Error("The AI couldn't find any specific job results at this moment. Please try a different role or location.");
+      }
+
+      let results;
+      try {
+        results = JSON.parse(response.text);
+      } catch (e) {
+        const jsonMatch = response.text.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          results = JSON.parse(jsonMatch[0]);
+        } else {
+          throw e;
+        }
+      }
+      
+      if (results.length === 0) {
+        throw new Error("No matching jobs were found for your search criteria. Try broadening your search terms.");
+      }
+      
+      if (isLoadMore) {
+        setJobResults(prev => [...prev, ...results]);
+        setSearchPage(currentPage);
+      } else {
+        setJobResults(results);
+      }
+    } catch (err: any) {
+      console.error("Error finding jobs:", err);
+      const errorMessage = err.message || String(err);
+      if (errorMessage.includes("API key not valid") || errorMessage.includes("INVALID_ARGUMENT") || errorMessage.includes("API_KEY_INVALID")) {
+        setHasApiKey(false);
+        setError("The API key is invalid. Please click 'Select API Key' below to provide a valid Google Cloud API key.");
+      } else if (errorMessage.includes("429") || errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("quota")) {
+        setError("You have exceeded your Gemini API quota. This usually means you've made too many requests in a short period on a free-tier key. Please wait a minute and try again, or check your billing settings at ai.google.dev.");
+      } else {
+        setError(errorMessage || "An unexpected error occurred while searching for jobs. Please try again.");
+      }
+    } finally {
+      setIsSearching(false);
+      setIsSearchingManual(false);
+      setIsSearchingAi(false);
+      setIsSearchingMore(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Navigation Bar */}
+      <nav className="bg-white border-b border-gray-200 sticky top-0 z-50 print:hidden">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16">
+            <div className="flex space-x-8">
+              <button
+                onClick={() => setActiveTab('cv')}
+                className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
+                  activeTab === 'cv' 
+                    ? 'border-blue-600 text-blue-600' 
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <FileText className="mr-2" size={18} />
+                CV Designer
+              </button>
+              <button
+                onClick={() => setActiveTab('hunter')}
+                className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
+                  activeTab === 'hunter' 
+                    ? 'border-blue-600 text-blue-600' 
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Briefcase className="mr-2" size={18} />
+                Smart Job Hunter
+                <span className="ml-2 px-1.5 py-0.5 text-[10px] bg-blue-100 text-blue-700 rounded-full font-bold uppercase tracking-wider">AI</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('optimizer')}
+                className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
+                  activeTab === 'optimizer' 
+                    ? 'border-blue-600 text-blue-600' 
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Wand2 className="mr-2" size={18} />
+                ATS Tailor
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <main className="flex-grow py-8 px-4 sm:px-6 lg:px-8">
+        {/* Global AI Status Banner */}
+        <div className="max-w-5xl mx-auto mb-8 print:hidden">
+          <div className={`p-4 rounded-xl border ${
+            (hasApiKey || manualApiKey) 
+              ? 'bg-green-50 border-green-100 text-green-800' 
+              : 'bg-amber-50 border-amber-100 text-amber-800'
+          } shadow-sm transition-all`}>
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-full ${
+                  (hasApiKey || manualApiKey) ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'
+                }`}>
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm flex items-center gap-2">
+                    AI Ecosystem Status: 
+                    {(hasApiKey || manualApiKey) ? (
+                      <span className="flex items-center gap-1 text-green-600">
+                        <CheckCircle2 size={14} /> Active & Ready
+                      </span>
+                    ) : (
+                      <span className="text-amber-600">Configuration Required</span>
+                    )}
+                  </h3>
+                  <p className="text-xs opacity-80 mt-0.5">
+                    {(hasApiKey || manualApiKey) 
+                      ? "Your API key is configured. Smart Job Hunter and ATS Tailor are now fully functional."
+                      : "A Gemini API key is required to enable real-time job searching and ATS optimization features."}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                {(hasApiKey || manualApiKey) && (
+                  <button 
+                    onClick={testConnection}
+                    disabled={isTestingKey}
+                    className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${
+                      testSuccess 
+                        ? 'bg-green-600 text-white' 
+                        : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    {isTestingKey ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : testSuccess ? (
+                      <CheckCircle2 size={16} />
+                    ) : (
+                      <RotateCcw size={16} />
+                    )}
+                    {testSuccess ? "Connection Verified" : "Test Connection"}
+                  </button>
+                )}
+
+                {!(hasApiKey || manualApiKey) && !showManualInput && (
+                  <button 
+                    onClick={() => setShowManualInput(true)}
+                    className="flex-1 md:flex-none px-4 py-2 bg-white border border-amber-200 text-amber-700 rounded-lg text-sm font-bold hover:bg-amber-100 transition-colors"
+                  >
+                    Enter Key Manually
+                  </button>
+                )}
+                
+                <button 
+                  onClick={handleSelectKey}
+                  className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all shadow-sm ${
+                    (hasApiKey || manualApiKey)
+                      ? 'bg-white border border-green-200 text-green-700 hover:bg-green-100'
+                      : 'bg-amber-600 text-white hover:bg-amber-700'
+                  }`}
+                >
+                  {(hasApiKey || manualApiKey) ? "Change API Key" : "Select API Key"}
+                </button>
+              </div>
+            </div>
+
+            {showManualInput && (
+              <div className="mt-4 pt-4 border-t border-current border-opacity-10">
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="flex-grow relative">
+                    <input 
+                      type="password"
+                      value={manualApiKey}
+                      onChange={(e) => {
+                        setManualApiKey(e.target.value);
+                        if (e.target.value) setError(null);
+                      }}
+                      placeholder="Paste your Gemini API Key here..."
+                      className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none pr-10"
+                    />
+                    {manualApiKey && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-green-500">
+                        <CheckCircle2 size={16} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => {
+                        if (manualApiKey) {
+                          setShowManualInput(false);
+                          setError(null);
+                        } else {
+                          setShowManualInput(false);
+                        }
+                      }}
+                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200"
+                    >
+                      {manualApiKey ? "Save & Close" : "Cancel"}
+                    </button>
+                    <button 
+                      onClick={testConnection}
+                      disabled={isTestingKey || !manualApiKey}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {isTestingKey ? <Loader2 size={16} className="animate-spin" /> : "Test Key"}
+                    </button>
+                  </div>
+                </div>
+                <p className="mt-2 text-[10px] opacity-70">
+                  Don't have a key? Get one for free at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold">aistudio.google.com</a>
+                </p>
+              </div>
+            )}
+          </div>
+          
+          {error && (
+            <div className="mt-3 p-3 bg-red-50 border border-red-100 rounded-lg text-red-700 text-xs flex items-start gap-2 animate-in fade-in slide-in-from-top-1">
+              <span className="font-bold">System Alert:</span>
+              <span>{error}</span>
+            </div>
+          )}
+        </div>
+
+        {activeTab === 'cv' ? (
+          <div className="max-w-[850px] mx-auto">
+            <style>
+              {`
+                @page {
+                  size: letter;
+                  margin: 0.75in;
+                }
+              `}
+            </style>
+            
+            {/* Header with Download Button (Hidden on Print) */}
+            <div className="flex flex-col gap-4 mb-8 print:hidden">
+              <div className="flex justify-between items-center bg-blue-50 p-4 rounded-lg border border-blue-100 shadow-sm">
+                <div className="flex items-start gap-3 text-blue-800">
+                  <Edit3 className="mt-1 flex-shrink-0" size={18} />
+                  <p className="text-sm">
+                    <strong>Ready to apply?</strong> This CV is optimized for ATS. Open this app in a <strong>new tab</strong> to enable the PDF export.
+                  </p>
+                </div>
+                <button 
+                  onClick={handlePrint}
+                  className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-md hover:bg-blue-700 transition-colors font-medium shadow-sm flex-shrink-0"
+                >
+                  <Download size={18} />
+                  Save as PDF
+                </button>
+              </div>
+
+              {fitAnalysis && (
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                      <Sparkles className="text-indigo-600" size={20} />
+                      AI Fit Analysis
+                    </h3>
+                    <div className="flex items-center gap-4">
+                      <div className="text-center">
+                        <div className="text-xs text-gray-500 uppercase font-bold">Original</div>
+                        <div className="text-lg font-bold text-gray-400">{fitAnalysis.originalScore}%</div>
+                      </div>
+                      <div className="text-2xl font-light text-gray-300">→</div>
+                      <div className="text-center">
+                        <div className="text-xs text-indigo-600 uppercase font-bold">Optimized</div>
+                        <div className="text-2xl font-black text-indigo-600">{fitAnalysis.optimizedScore}%</div>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-700 mb-4 leading-relaxed">
+                    <strong>Improvement:</strong> {fitAnalysis.improvement}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {fitAnalysis.keyChanges.map((change, i) => (
+                      <div key={i} className="flex items-start gap-2 text-xs text-gray-600 bg-gray-50 p-2 rounded border border-gray-100">
+                        <CheckCircle2 className="text-green-500 mt-0.5" size={14} />
+                        {change}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {optimizedCv && (
+                <div className="flex items-center justify-between bg-indigo-50 p-3 rounded-lg border border-indigo-100">
+                  <div className="flex items-center gap-2 text-indigo-900 font-medium text-sm">
+                    <Sparkles className="text-indigo-600" size={18} />
+                    {useOptimized ? "Viewing Tailored Version (ATS Optimized)" : "Viewing Original CV"}
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setUseOptimized(!useOptimized)}
+                      className="text-xs font-bold uppercase tracking-wider px-3 py-1.5 bg-white border border-indigo-200 text-indigo-700 rounded hover:bg-indigo-100 transition-colors"
+                    >
+                      Switch to {useOptimized ? "Original" : "Tailored"}
+                    </button>
+                    <button 
+                      onClick={() => { setOptimizedCv(null); setFitAnalysis(null); setUseOptimized(false); }}
+                      className="text-xs font-bold uppercase tracking-wider px-3 py-1.5 text-red-600 hover:bg-red-50 rounded transition-colors flex items-center gap-1"
+                    >
+                      <RotateCcw size={12} /> Reset
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white p-12 shadow-xl print:shadow-none print:p-0">
+              {/* CV Content */}
+              <div className="font-sans text-gray-900 leading-relaxed">
+                
+                {/* Header */}
+                <header className="text-center border-b-2 border-gray-900 pb-5 mb-5">
+                  <h1 className="text-3xl font-bold tracking-wider mb-2">{currentCvData.name} {currentCvData.secondLastName}</h1>
+                  <p className="text-sm text-gray-600">
+                    (+57) 317 4117571 | aangeldu@gmail.com | <a href="https://linkedin.com/in/aangeldu/" className="text-blue-600 print:text-gray-900 print:no-underline">linkedin.com/in/aangeldu/</a>
+                  </p>
+                </header>
+
+                {/* Summary */}
+                <section className="mb-5">
+                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-2 pb-1 text-gray-800 tracking-wide">Professional Summary</h2>
+                  <p className="text-[13px] text-justify text-gray-800 leading-snug">
+                    {currentCvData.summary}
+                  </p>
+                </section>
+
+                {/* Experience */}
+                <section className="mb-5">
+                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-3 pb-1 text-gray-800 tracking-wide">Professional Experience</h2>
+
+                  {currentCvData.experience.map((exp, idx) => (
+                    <div key={idx} className="mb-4">
+                      <div className="flex justify-between items-baseline mb-0.5">
+                        <h3 className="font-bold text-[14px]">{exp.company} <span className="font-normal text-gray-600">| {exp.location}</span></h3>
+                        <span className="text-[13px] font-medium text-gray-700">{exp.period}</span>
+                      </div>
+                      <div className="italic text-[13px] mb-1.5 font-medium text-gray-800">{exp.role}</div>
+                      <ul className="list-disc list-outside ml-4 text-[13px] space-y-1 text-gray-800 leading-snug">
+                        {exp.bullets.map((bullet, bIdx) => (
+                          <li key={bIdx}>{bullet}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </section>
+
+                {/* Skills */}
+                <section className="mb-5">
+                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-2 pb-1 text-gray-800 tracking-wide">Key Skills</h2>
+                  <ul className="list-disc list-outside ml-4 text-[13px] space-y-1 text-gray-800 leading-snug">
+                    {currentCvData.skills.map((skillGroup, idx) => (
+                      <li key={idx}><strong>{skillGroup.category}:</strong> {skillGroup.items.join(', ')}.</li>
+                    ))}
+                  </ul>
+                </section>
+
+                {/* Education */}
+                <section className="mb-5">
+                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-2 pb-1 text-gray-800 tracking-wide">Education</h2>
+                  <ul className="list-disc list-outside ml-4 text-[13px] space-y-1 text-gray-800 leading-snug">
+                    <li><strong>Bachelor's Degree in Economics</strong> | Universidad del Rosario, Bogotá, Colombia | 2018 <em>(Academic Excellence Scholarship)</em></li>
+                    <li><strong>Data Science Career Program</strong> | Acamica (IBM & Globant Institution) | 2020</li>
+                  </ul>
+                </section>
+
+                {/* Certifications & Additional Info */}
+                <section>
+                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-2 pb-1 text-gray-800 tracking-wide">Certifications & Additional Info</h2>
+                  <ul className="list-disc list-outside ml-4 text-[13px] space-y-1 text-gray-800 leading-snug">
+                    <li><strong>Certifications:</strong> Generative AI Leader (Google), AI-Powered Performance Ads (Google), Google Analytics, Scrum Master (SMPC), Scrum Product Owner (SPOPC).</li>
+                    <li><strong>Languages:</strong> Spanish (Native), English (C1 - Fluent/Advanced), Portuguese (B2 - Upper-Intermediate).</li>
+                    <li><strong>Leadership & Social Impact:</strong> President of the Student Council, Faculty of Economics (Universidad del Rosario, 2016); Project Leader at Fundación Con Las Manos (Coordinated 30 volunteers).</li>
+                    <li><strong>Media Coverage:</strong> Featured in <em>Portafolio</em> (2025) regarding Ikonico's strategic positioning to lead the beauty and fragrance segment.</li>
+                  </ul>
+                </section>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'hunter' ? (
+          <div className="max-w-4xl mx-auto">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-indigo-700 text-white">
+                <h2 className="text-2xl font-bold flex items-center gap-2">
+                  <Sparkles size={24} />
+                  Smart Job Hunter
+                </h2>
+                <p className="text-blue-100 mt-1">AI-powered job matching for your specific profile.</p>
+              </div>
+              
+              <div className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Target Role</label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                      <input 
+                        type="text" 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        placeholder="Search by role, industry, or keywords (e.g. 'Fintech Strategy' or 'Product Lead')"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                    <input 
+                      type="text" 
+                      value={searchLocation}
+                      onChange={(e) => setSearchLocation(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                      placeholder="e.g. Colombia"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Job Type</label>
+                    <select 
+                      value={searchJobType}
+                      onChange={(e) => setSearchJobType(e.target.value as any)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                    >
+                      <option value="all">All Types</option>
+                      <option value="full-time">Full-time</option>
+                      <option value="contract">Contract</option>
+                      <option value="internship">Internship</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Remote Status</label>
+                    <select 
+                      value={searchRemote}
+                      onChange={(e) => setSearchRemote(e.target.value as any)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                    >
+                      <option value="all">Any Status</option>
+                      <option value="remote">Remote Only</option>
+                      <option value="on-site">On-site</option>
+                      <option value="hybrid">Hybrid</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Experience Level</label>
+                    <select 
+                      value={searchExpLevel}
+                      onChange={(e) => setSearchExpLevel(e.target.value as any)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                    >
+                      <option value="all">Any Level</option>
+                      <option value="entry">Entry Level</option>
+                      <option value="mid">Mid Level</option>
+                      <option value="senior">Senior Level</option>
+                      <option value="executive">Executive</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Posting Date</label>
+                  <div className="flex gap-2">
+                    {(['24h', '7d', '30d'] as const).map((period) => (
+                      <button
+                        key={period}
+                        onClick={() => setSearchRecency(period)}
+                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-semibold transition-all border ${
+                          searchRecency === period 
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
+                        }`}
+                      >
+                        {period === '24h' ? 'Last 24 Hours' : period === '7d' ? 'Last 7 Days' : 'Last 30 Days'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button 
+                    onClick={() => findJobs(false)}
+                    disabled={isSearching}
+                    className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+                  >
+                    {isSearchingManual ? (
+                      <>
+                        <Loader2 className="animate-spin" size={20} />
+                        Searching...
+                      </>
+                    ) : (
+                      <>
+                        <Search size={20} />
+                        Find Matches
+                      </>
+                    )}
+                  </button>
+                  <button 
+                    onClick={() => findJobs(true)}
+                    disabled={isSearching}
+                    className="flex-1 bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+                  >
+                    {isSearchingAi ? (
+                      <Loader2 className="animate-spin" size={20} />
+                    ) : (
+                      <Sparkles size={20} />
+                    )}
+                    AI Selection
+                  </button>
+                </div>
+
+                {isSearching && (
+                  <div className="mt-8 p-6 bg-blue-50 rounded-xl border border-blue-100 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-bold text-blue-700 uppercase tracking-wider flex items-center gap-2">
+                        <Loader2 className="animate-spin" size={16} />
+                        AI Search in Progress
+                      </span>
+                      <span className="text-sm font-bold text-blue-600">{Math.round(searchProgress)}%</span>
+                    </div>
+                    <div className="w-full bg-blue-200 rounded-full h-2.5 mb-4 overflow-hidden shadow-inner">
+                      <div 
+                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-500 ease-out shadow-sm" 
+                        style={{ width: `${searchProgress}%` }}
+                      ></div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="mt-1 p-1 bg-blue-100 rounded-full">
+                        <Wand2 size={14} className="text-blue-600" />
+                      </div>
+                      <p className="text-sm text-blue-800 font-medium italic animate-pulse">
+                        {searchReasoning}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {error && (
+                  <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-lg text-red-700 text-sm flex items-start gap-2">
+                    <span className="font-bold">Error:</span>
+                    <span>{error}</span>
+                  </div>
+                )}
+
+                <div className="mt-6 pt-6 border-t border-gray-100">
+                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Search Tips</h4>
+                  <ul className="space-y-2 text-xs text-gray-500">
+                    <li className="flex gap-2">
+                      <span className="text-blue-500">•</span>
+                      Use specific job titles and apply filters (Job Type, Remote, Level) to narrow down results.
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="text-blue-500">•</span>
+                      The AI searches across LinkedIn, Indeed, Glassdoor, Computrabajo, El Empleo, and major company career pages.
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="text-blue-500">•</span>
+                      The AI searches real-time web data. This uses more API quota than standard tasks.
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="text-blue-500">•</span>
+                      If you hit quota limits, wait 60 seconds for the free-tier reset.
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              {jobResults.length > 0 && (
+                <div className="p-6 bg-gray-50 border-t border-gray-200">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <CheckCircle2 className="text-green-500" size={20} />
+                    Top AI-Matched Opportunities
+                  </h3>
+                  <div className="space-y-4">
+                    {jobResults.map((job, idx) => (
+                      <div key={idx} className={`bg-white p-5 rounded-xl border transition-all shadow-sm hover:shadow-md ${job.isTopOpportunity ? 'border-indigo-200 ring-1 ring-indigo-50' : 'border-gray-200'}`}>
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex-grow">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="font-bold text-lg text-gray-900 leading-tight">{job.title}</h4>
+                              {job.isTopOpportunity && (
+                                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-black uppercase tracking-tighter rounded flex items-center gap-1">
+                                  <Sparkles size={10} /> Top Opportunity
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-gray-600 font-medium text-sm">{job.company} • {job.location}</p>
+                            <div className="flex flex-wrap gap-2 mt-2 items-center">
+                              {job.platform && (
+                                <span className={`px-2 py-0.5 text-[10px] font-black uppercase tracking-tighter rounded flex items-center gap-1 ${
+                                  job.platform.toLowerCase().includes('linkedin') ? 'bg-blue-100 text-blue-700 border border-blue-200' :
+                                  job.platform.toLowerCase().includes('indeed') ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' :
+                                  'bg-gray-100 text-gray-600 border border-gray-200'
+                                }`}>
+                                  {job.platform} {['linkedin', 'indeed'].some(p => job.platform.toLowerCase().includes(p)) && '✓'}
+                                </span>
+                              )}
+                              {job.postedDate && (
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{job.postedDate}</span>
+                              )}
+                              {job.applicantCount !== undefined && (
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">• {job.applicantCount} applicants</span>
+                              )}
+                              {job.tags?.map((tag, i) => (
+                                <span key={i} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-bold rounded uppercase tracking-tighter">{tag}</span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end flex-shrink-0">
+                            <div className={`px-3 py-1 rounded-full text-sm font-bold ${
+                              job.matchScore >= 90 ? 'bg-green-100 text-green-700' :
+                              job.matchScore >= 75 ? 'bg-blue-100 text-blue-700' :
+                              'bg-gray-100 text-gray-700'
+                            }`}>
+                              {job.matchScore}% Match
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="mb-4">
+                          <p className="text-sm text-gray-700 italic border-l-4 border-blue-200 pl-3 mb-2">
+                            "{job.reason}"
+                          </p>
+                          <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
+                            <p className="text-xs font-bold text-blue-800 uppercase tracking-wider mb-1">AI-Generated Pitch:</p>
+                            <p className="text-sm text-blue-900 leading-relaxed">
+                              {job.customPitch}
+                            </p>
+                          </div>
+                        </div>
+
+                        <a 
+                          href={job.link} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 text-blue-600 font-semibold hover:text-blue-800 transition-colors text-sm"
+                        >
+                          View on {job.platform || 'Platform'} <ExternalLink size={14} />
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+
+                  {jobResults.length > 0 && jobResults.length < 100 && (
+                    <div className="mt-8 flex justify-center pb-8 px-6">
+                      <button
+                        onClick={() => findJobs(isSearchingAi, true)}
+                        disabled={isSearching || isSearchingMore}
+                        className="w-full sm:w-auto px-8 py-3 bg-white border-2 border-indigo-600 text-indigo-600 rounded-xl font-bold hover:bg-indigo-50 transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-sm"
+                      >
+                        {isSearchingMore ? (
+                          <>
+                            <Loader2 className="animate-spin" size={20} />
+                            Finding More Matches...
+                          </>
+                        ) : (
+                          <>
+                            <Plus size={20} />
+                            Load More Opportunities
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!isSearching && jobResults.length === 0 && (
+                <div className="p-12 text-center text-gray-500">
+                  <Briefcase size={48} className="mx-auto mb-4 opacity-20" />
+                  <p>Search for a role to see AI-matched opportunities.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="max-w-4xl mx-auto">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-indigo-600 to-purple-700 text-white">
+                <h2 className="text-2xl font-bold flex items-center gap-2">
+                  <Wand2 size={24} />
+                  ATS Tailor & Optimizer
+                </h2>
+                <p className="text-indigo-100 mt-1">Paste a job description to subtly optimize your CV for HR and ATS systems.</p>
+              </div>
+              
+              <div className="p-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Target Company</label>
+                    <input 
+                      type="text" 
+                      value={targetCompany}
+                      onChange={(e) => setTargetCompany(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-sm"
+                      placeholder="e.g. Google"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Target Role</label>
+                    <input 
+                      type="text" 
+                      value={targetRole}
+                      onChange={(e) => setTargetRole(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-sm"
+                      placeholder="e.g. Strategy Lead"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Target ATS</label>
+                    <select 
+                      value={targetAts}
+                      onChange={(e) => setTargetAts(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-sm"
+                    >
+                      <option value="Workday">Workday</option>
+                      <option value="Greenhouse">Greenhouse</option>
+                      <option value="Lever">Lever</option>
+                      <option value="Taleo">Taleo</option>
+                      <option value="SuccessFactors">SuccessFactors</option>
+                      <option value="Other">Other / Generic</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Output Language</label>
+                    <select 
+                      value={targetLanguage}
+                      onChange={(e) => setTargetLanguage(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-sm"
+                    >
+                      <option value="English">English</option>
+                      <option value="Spanish">Spanish</option>
+                      <option value="Portuguese">Portuguese</option>
+                      <option value="German">German</option>
+                      <option value="French">French</option>
+                      <option value="Italian">Italian</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Job Description</label>
+                  <textarea 
+                    value={jobDescription}
+                    onChange={(e) => {
+                      setJobDescription(e.target.value);
+                      if (error) setError(null);
+                    }}
+                    className="w-full h-64 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-sm font-mono"
+                    placeholder="Paste the full job description here..."
+                  />
+                </div>
+
+                {error && (
+                  <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-lg text-red-700 text-sm flex items-start gap-2">
+                    <span className="font-bold">Error:</span>
+                    <span>{error}</span>
+                  </div>
+                )}
+
+                <button 
+                  onClick={optimizeCv}
+                  disabled={isOptimizing || !jobDescription.trim()}
+                  className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+                >
+                  {isOptimizing ? (
+                    <>
+                      <Loader2 className="animate-spin" size={20} />
+                      Optimizing CV Structure...
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 size={20} />
+                      Tailor My CV
+                    </>
+                  )}
+                </button>
+
+                <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-100">
+                    <h4 className="text-indigo-900 font-bold text-sm mb-2">Subtle Optimization</h4>
+                    <p className="text-xs text-indigo-800 leading-relaxed">We rewrite your summary and bullet points to emphasize relevant achievements without changing the facts.</p>
+                  </div>
+                  <div className="p-4 bg-purple-50 rounded-lg border border-purple-100">
+                    <h4 className="text-purple-900 font-bold text-sm mb-2">ATS Friendly</h4>
+                    <p className="text-xs text-purple-800 leading-relaxed">The AI ensures key terminology from the job description is naturally integrated into your experience.</p>
+                  </div>
+                  <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+                    <h4 className="text-blue-900 font-bold text-sm mb-2">Structure Preserved</h4>
+                    <p className="text-xs text-blue-800 leading-relaxed">Your professional history remains intact. We only adjust the "how" to make your value proposition clearer.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
