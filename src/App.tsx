@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Edit3, Briefcase, FileText, Search, ExternalLink, Sparkles, Loader2, CheckCircle2, Wand2, RotateCcw, Plus } from 'lucide-react';
+import { Download, Edit3, Briefcase, FileText, Search, ExternalLink, Sparkles, Loader2, CheckCircle2, Wand2, RotateCcw, Plus, Check, Save, X } from 'lucide-react';
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 
 // Add type declaration for AI Studio global functions
@@ -12,7 +12,31 @@ declare global {
   }
 }
 
-const CV_DATA = {
+interface CvData {
+  name: string;
+  secondLastName: string;
+  summary: string;
+  experience: {
+    company: string;
+    role: string;
+    period: string;
+    location: string;
+    bullets: string[];
+  }[];
+  skills: {
+    category: string;
+    items: string[];
+  }[];
+  sectionTitles: {
+    summary: string;
+    experience: string;
+    skills: string;
+    education: string;
+    certifications: string;
+  };
+}
+
+const CV_DATA: CvData = {
   name: "Alejandro Angel",
   secondLastName: "Duque",
   summary: "Strategic and data-driven Business Development & Strategy Leader with over 8 years of experience scaling operations, driving revenue growth, and leading cross-functional teams in fast-paced, matrixed environments (including top-tier Fintech and Telecom). Proven track record of owning P&L, formulating Go-to-Market (GTM) strategies, and negotiating high-impact partnerships to unlock new business opportunities. Adept at translating complex data into actionable strategic initiatives that optimize operational efficiency, maximize ROI, and accelerate market expansion. Fluent in English, Spanish, and Portuguese.",
@@ -77,7 +101,14 @@ const CV_DATA = {
     { category: "Strategic Leadership", items: ["Corporate Strategy", "Go-to-Market (GTM)", "Strategic Partnerships", "P&L Management", "OKR Framework", "Market Expansion", "Financial Modeling"] },
     { category: "Operations & Management", items: ["Cross-Functional Leadership", "Stakeholder Management", "Process Optimization", "Agile Methodologies", "Project Management", "Change Management"] },
     { category: "Data & Digital Strategy", items: ["Data-Driven Decision Making", "E-commerce Strategy", "Digital Marketing", "ROI Optimization", "Business Intelligence", "Power BI", "SQL"] }
-  ]
+  ],
+  sectionTitles: {
+    summary: "Professional Summary",
+    experience: "Professional Experience",
+    skills: "Key Skills",
+    education: "Education",
+    certifications: "Certifications & Additional Info"
+  }
 };
 
 interface JobMatch {
@@ -122,11 +153,65 @@ export default function App() {
   const [targetRole, setTargetRole] = useState('');
   const [targetAts, setTargetAts] = useState('Workday');
   const [targetLanguage, setTargetLanguage] = useState('English');
-  const [optimizedCv, setOptimizedCv] = useState<typeof CV_DATA | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [cvDataState, setCvDataState] = useState<CvData>(CV_DATA);
+  const [optimizedCv, setOptimizedCv] = useState<CvData | null>(null);
   const [fitAnalysis, setFitAnalysis] = useState<FitAnalysis | null>(null);
   const [useOptimized, setUseOptimized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasApiKey, setHasApiKey] = useState(false);
+
+  const updateSectionTitle = (key: keyof CvData['sectionTitles'], value: string) => {
+    if (useOptimized && optimizedCv) {
+      setOptimizedCv(prev => prev ? { ...prev, sectionTitles: { ...prev.sectionTitles, [key]: value } } : null);
+    } else {
+      setCvDataState(prev => ({ ...prev, sectionTitles: { ...prev.sectionTitles, [key]: value } }));
+    }
+  };
+
+  const updateSummary = (value: string) => {
+    if (useOptimized && optimizedCv) {
+      setOptimizedCv(prev => prev ? { ...prev, summary: value } : null);
+    } else {
+      setCvDataState(prev => ({ ...prev, summary: value }));
+    }
+  };
+
+  const updateExperienceBullet = (expIdx: number, bulletIdx: number, value: string) => {
+    if (useOptimized && optimizedCv) {
+      setOptimizedCv(prev => {
+        if (!prev) return null;
+        const newExp = [...prev.experience];
+        newExp[expIdx] = { ...newExp[expIdx], bullets: [...newExp[expIdx].bullets] };
+        newExp[expIdx].bullets[bulletIdx] = value;
+        return { ...prev, experience: newExp };
+      });
+    } else {
+      setCvDataState(prev => {
+        const newExp = [...prev.experience];
+        newExp[expIdx] = { ...newExp[expIdx], bullets: [...newExp[expIdx].bullets] };
+        newExp[expIdx].bullets[bulletIdx] = value;
+        return { ...prev, experience: newExp };
+      });
+    }
+  };
+
+  const updateExperienceField = (expIdx: number, field: keyof CvData['experience'][0], value: string) => {
+    if (useOptimized && optimizedCv) {
+      setOptimizedCv(prev => {
+        if (!prev) return null;
+        const newExp = [...prev.experience];
+        newExp[expIdx] = { ...newExp[expIdx], [field]: value };
+        return { ...prev, experience: newExp };
+      });
+    } else {
+      setCvDataState(prev => {
+        const newExp = [...prev.experience];
+        newExp[expIdx] = { ...newExp[expIdx], [field]: value };
+        return { ...prev, experience: newExp };
+      });
+    }
+  };
   const [manualApiKey, setManualApiKey] = useState('');
   const [showManualInput, setShowManualInput] = useState(false);
   const [isTestingKey, setIsTestingKey] = useState(false);
@@ -249,7 +334,12 @@ export default function App() {
     try {
       const ai = getAiInstance();
       const prompt = `You are an expert ATS optimizer and career coach. 
-      Tailor the following CV data to match this specific job opportunity:
+      Tailor the following CV data to match this specific job opportunity, ensuring the output sounds natural and not overtly AI-generated. 
+      
+      CRITICAL: DO NOT mention the target company name ("${targetCompany}") anywhere in the CV content (summary, bullets, etc.). 
+      The CV should be a record of the candidate's achievements, not a direct letter to the company.
+      
+      Avoid directly copying phrases from the job description. Focus on strategic alignment.
       
       TARGET COMPANY: ${targetCompany || 'Not specified'}
       TARGET ROLE: ${targetRole || 'Not specified'}
@@ -263,28 +353,30 @@ export default function App() {
       ${JSON.stringify(CV_DATA)}
       
       INSTRUCTIONS:
-      1. Rewrite the 'summary' to emphasize relevant experience for this specific job. Focus on solving the problems mentioned in the job description.
-      2. For each 'experience' item, rewrite the 'bullets' to highlight achievements and skills that match the job description. 
-      3. Use universal, ATS-friendly terminology for skills and achievements.
+      1. Rewrite the 'summary' to emphasize relevant experience for this specific job. Focus on solving the problems mentioned in the job description, using natural language. 
+         - AVOID AI cliches like "I am a...", "With a proven track record of...", "Passionate about...". 
+         - START with direct, high-impact statements.
+      2. For each 'experience' item, rewrite the 'bullets' to highlight achievements and skills that match the job description. Ensure the language is subtle and professional.
+      3. Use universal, ATS-friendly terminology for skills and achievements. Translate ALL content, including section titles (e.g., 'Professional Summary', 'Experience', 'Skills', 'Education', 'Certifications'), to the target language.
       4. DO NOT change names, dates, companies, or roles.
-      5. The tone should be professional, strategic, and subtle—not an obvious copy-paste of the job description. Avoid keyword stuffing.
+      5. The tone should be professional, strategic, and subtle—avoiding obvious keyword stuffing or sounding like a direct copy-paste.
       6. Ensure the structure is highly readable for the specified ATS system (${targetAts}).
-      7. IMPORTANT: Translate the entire CV content (summary, experience bullets, skill categories) into ${targetLanguage}.
+      7. IMPORTANT: Translate the entire CV content (summary, experience bullets, skill categories, SECTION TITLES) into ${targetLanguage}. Make sure translated section titles are accurate and natural-sounding in ${targetLanguage}.
+      8. MANDATORY: DO NOT include the name of the target company ("${targetCompany}") in the summary or any other part of the CV. This is a major AI giveaway.
       
       Return a JSON object with two fields:
-      - 'cv': The updated CV data matching the original structure.
+      - 'cv': The updated CV data matching the original structure, with all content and titles translated.
       - 'fitAnalysis': An object with:
         - 'originalScore': (0-100) How well the original CV matched.
         - 'optimizedScore': (0-100) How well the optimized CV matches.
-        - 'improvement': A brief explanation of the key improvements made.
-        - 'keyChanges': An array of the top 3-4 strategic changes made.`;
+        - 'improvement': A brief explanation of the key improvements made, focusing on natural integration.
+        - 'keyChanges': An array of the top 3-4 strategic changes made, explaining *why* they enhance the CV's fit subtly.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.1-pro-preview",
         contents: prompt,
         config: {
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           responseSchema: {
             type: Type.OBJECT,
             properties: {
@@ -318,9 +410,20 @@ export default function App() {
                       },
                       required: ["category", "items"]
                     }
+                  },
+                  sectionTitles: {
+                    type: Type.OBJECT,
+                    properties: {
+                      summary: { type: Type.STRING },
+                      experience: { type: Type.STRING },
+                      skills: { type: Type.STRING },
+                      education: { type: Type.STRING },
+                      certifications: { type: Type.STRING }
+                    },
+                    required: ["summary", "experience", "skills", "education", "certifications"]
                   }
                 },
-                required: ["name", "secondLastName", "summary", "experience", "skills"]
+                required: ["name", "secondLastName", "summary", "experience", "skills", "sectionTitles"]
               },
               fitAnalysis: {
                 type: Type.OBJECT,
@@ -430,16 +533,17 @@ export default function App() {
       - ONLY if results are insufficient, search local leaders (site:computrabajo.com.co, site:elempleo.com).
       - Use the 'tbs=qdr:${searchRecency === '24h' ? 'd' : searchRecency === '7d' ? 'w' : 'm'}' parameter.
       
-      ZERO TOLERANCE FOR BROKEN LINKS & CATALOGS:
-      - DISCARD any link containing "/jobs/search", "/jobs/collections", "/jobs/index", or "/jobs/catalog".
-      - DISCARD any link that leads to a list of jobs rather than a single job description.
-      - The link MUST be a direct "view" URL (e.g., linkedin.com/jobs/view/...).
-      - NEVER provide a link to a company's general career portal.
-      - NEVER guess or hallucinate a URL.
+      ZERO TOLERANCE FOR BROKEN LINKS, CATALOGS & REDIRECTS:
+      - DISCARD any link containing "/jobs/search", "/jobs/collections", "/jobs/index", "/jobs/catalog", "/jobs/all", or "/jobs/list".
+      - DISCARD any link that leads to a list of jobs or a search results page.
+      - The link MUST be a direct "view" URL for a single job (e.g., linkedin.com/jobs/view/..., indeed.com/viewjob?jk=...).
+      - NEVER provide a link to a company's general career portal or a "Join our talent community" page.
+      - NEVER guess or hallucinate a URL. If you cannot find a direct link, do not include the job.
       
-      SOURCE AUTHORITY:
-      - Prioritize LinkedIn and Indeed above all else.
-      - Discard results from obscure "job aggregator" sites (e.g., jooble, ziprecruiter, etc.) as they often lead to 404s.
+      SOURCE AUTHORITY & HIERARCHY:
+      - Prioritize LinkedIn and Indeed above all else. They are the gold standard for direct links.
+      - Discard results from obscure "job aggregator" sites (e.g., jooble, ziprecruiter, talent.com, etc.) as they often lead to 404s or are low quality.
+      - Ensure the "platform" field accurately reflects where the job was found.
       
       QUANTITY: Return 10-15 HIGH-QUALITY, VERIFIED matches. Quality over quantity.
       
@@ -453,12 +557,12 @@ export default function App() {
       Sort results by matchScore (descending).`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.1-pro-preview",
         contents: prompt,
         config: {
           tools: [{ googleSearch: {} }],
+          toolConfig: { includeServerSideToolInvocations: true },
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           responseSchema: {
             type: Type.ARRAY,
             items: {
@@ -780,18 +884,34 @@ export default function App() {
                   </div>
                   <div className="flex gap-2">
                     <button 
+                      onClick={() => setIsEditing(!isEditing)}
+                      className={`text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded transition-colors flex items-center gap-1 ${isEditing ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-100'}`}
+                    >
+                      {isEditing ? <><Check size={12} /> Save Changes</> : <><Edit3 size={12} /> Manual Edit</>}
+                    </button>
+                    <button 
                       onClick={() => setUseOptimized(!useOptimized)}
                       className="text-xs font-bold uppercase tracking-wider px-3 py-1.5 bg-white border border-indigo-200 text-indigo-700 rounded hover:bg-indigo-100 transition-colors"
                     >
                       Switch to {useOptimized ? "Original" : "Tailored"}
                     </button>
                     <button 
-                      onClick={() => { setOptimizedCv(null); setFitAnalysis(null); setUseOptimized(false); }}
+                      onClick={() => { setOptimizedCv(null); setFitAnalysis(null); setUseOptimized(false); setIsEditing(false); }}
                       className="text-xs font-bold uppercase tracking-wider px-3 py-1.5 text-red-600 hover:bg-red-50 rounded transition-colors flex items-center gap-1"
                     >
                       <RotateCcw size={12} /> Reset
                     </button>
                   </div>
+                </div>
+              )}
+              {!optimizedCv && (
+                <div className="flex justify-end">
+                  <button 
+                    onClick={() => setIsEditing(!isEditing)}
+                    className={`text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded transition-colors flex items-center gap-1 ${isEditing ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+                  >
+                    {isEditing ? <><Check size={12} /> Save Changes</> : <><Edit3 size={12} /> Manual Edit</>}
+                  </button>
                 </div>
               )}
             </div>
@@ -810,26 +930,100 @@ export default function App() {
 
                 {/* Summary */}
                 <section className="mb-5">
-                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-2 pb-1 text-gray-800 tracking-wide">Professional Summary</h2>
-                  <p className="text-[13px] text-justify text-gray-800 leading-snug">
-                    {currentCvData.summary}
-                  </p>
+                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-2 pb-1 text-gray-800 tracking-wide">
+                    {isEditing ? (
+                      <input 
+                        type="text" 
+                        value={currentCvData.sectionTitles.summary} 
+                        onChange={(e) => updateSectionTitle('summary', e.target.value)}
+                        className="w-full bg-gray-50 border-none p-0 focus:ring-0 font-bold uppercase"
+                      />
+                    ) : currentCvData.sectionTitles.summary}
+                  </h2>
+                  {isEditing ? (
+                    <textarea 
+                      value={currentCvData.summary}
+                      onChange={(e) => updateSummary(e.target.value)}
+                      className="w-full text-[13px] text-justify text-gray-800 leading-snug bg-gray-50 border border-gray-200 rounded p-2 focus:ring-1 focus:ring-indigo-500 outline-none"
+                      rows={4}
+                    />
+                  ) : (
+                    <p className="text-[13px] text-justify text-gray-800 leading-snug">
+                      {currentCvData.summary}
+                    </p>
+                  )}
                 </section>
 
                 {/* Experience */}
                 <section className="mb-5">
-                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-3 pb-1 text-gray-800 tracking-wide">Professional Experience</h2>
+                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-3 pb-1 text-gray-800 tracking-wide">
+                    {isEditing ? (
+                      <input 
+                        type="text" 
+                        value={currentCvData.sectionTitles.experience} 
+                        onChange={(e) => updateSectionTitle('experience', e.target.value)}
+                        className="w-full bg-gray-50 border-none p-0 focus:ring-0 font-bold uppercase"
+                      />
+                    ) : currentCvData.sectionTitles.experience}
+                  </h2>
 
                   {currentCvData.experience.map((exp, idx) => (
                     <div key={idx} className="mb-4">
                       <div className="flex justify-between items-baseline mb-0.5">
-                        <h3 className="font-bold text-[14px]">{exp.company} <span className="font-normal text-gray-600">| {exp.location}</span></h3>
-                        <span className="text-[13px] font-medium text-gray-700">{exp.period}</span>
+                        <div className="flex-1">
+                          {isEditing ? (
+                            <div className="flex gap-2 mb-1">
+                              <input 
+                                type="text" 
+                                value={exp.company} 
+                                onChange={(e) => updateExperienceField(idx, 'company', e.target.value)}
+                                className="font-bold text-[14px] bg-gray-50 border border-gray-200 rounded px-1"
+                              />
+                              <span className="text-gray-400">|</span>
+                              <input 
+                                type="text" 
+                                value={exp.location} 
+                                onChange={(e) => updateExperienceField(idx, 'location', e.target.value)}
+                                className="font-normal text-gray-600 text-[14px] bg-gray-50 border border-gray-200 rounded px-1"
+                              />
+                            </div>
+                          ) : (
+                            <h3 className="font-bold text-[14px]">{exp.company} <span className="font-normal text-gray-600">| {exp.location}</span></h3>
+                          )}
+                        </div>
+                        {isEditing ? (
+                          <input 
+                            type="text" 
+                            value={exp.period} 
+                            onChange={(e) => updateExperienceField(idx, 'period', e.target.value)}
+                            className="text-[13px] font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded px-1 text-right"
+                          />
+                        ) : (
+                          <span className="text-[13px] font-medium text-gray-700">{exp.period}</span>
+                        )}
                       </div>
-                      <div className="italic text-[13px] mb-1.5 font-medium text-gray-800">{exp.role}</div>
+                      {isEditing ? (
+                        <input 
+                          type="text" 
+                          value={exp.role} 
+                          onChange={(e) => updateExperienceField(idx, 'role', e.target.value)}
+                          className="italic text-[13px] mb-1.5 font-medium text-gray-800 bg-gray-50 border border-gray-200 rounded px-1 w-full"
+                        />
+                      ) : (
+                        <div className="italic text-[13px] mb-1.5 font-medium text-gray-800">{exp.role}</div>
+                      )}
                       <ul className="list-disc list-outside ml-4 text-[13px] space-y-1 text-gray-800 leading-snug">
                         {exp.bullets.map((bullet, bIdx) => (
-                          <li key={bIdx}>{bullet}</li>
+                          <li key={bIdx}>
+                            {isEditing ? (
+                              <textarea 
+                                value={bullet}
+                                onChange={(e) => updateExperienceBullet(idx, bIdx, e.target.value)}
+                                className="w-full bg-gray-50 border border-gray-200 rounded p-1 focus:ring-1 focus:ring-indigo-500 outline-none mt-1"
+                                rows={2}
+                              />
+                            ) : bullet}
+                          </li>
                         ))}
                       </ul>
                     </div>
@@ -838,7 +1032,16 @@ export default function App() {
 
                 {/* Skills */}
                 <section className="mb-5">
-                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-2 pb-1 text-gray-800 tracking-wide">Key Skills</h2>
+                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-2 pb-1 text-gray-800 tracking-wide">
+                    {isEditing ? (
+                      <input 
+                        type="text" 
+                        value={currentCvData.sectionTitles.skills} 
+                        onChange={(e) => updateSectionTitle('skills', e.target.value)}
+                        className="w-full bg-gray-50 border-none p-0 focus:ring-0 font-bold uppercase"
+                      />
+                    ) : currentCvData.sectionTitles.skills}
+                  </h2>
                   <ul className="list-disc list-outside ml-4 text-[13px] space-y-1 text-gray-800 leading-snug">
                     {currentCvData.skills.map((skillGroup, idx) => (
                       <li key={idx}><strong>{skillGroup.category}:</strong> {skillGroup.items.join(', ')}.</li>
@@ -848,7 +1051,16 @@ export default function App() {
 
                 {/* Education */}
                 <section className="mb-5">
-                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-2 pb-1 text-gray-800 tracking-wide">Education</h2>
+                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-2 pb-1 text-gray-800 tracking-wide">
+                    {isEditing ? (
+                      <input 
+                        type="text" 
+                        value={currentCvData.sectionTitles.education} 
+                        onChange={(e) => updateSectionTitle('education', e.target.value)}
+                        className="w-full bg-gray-50 border-none p-0 focus:ring-0 font-bold uppercase"
+                      />
+                    ) : currentCvData.sectionTitles.education}
+                  </h2>
                   <ul className="list-disc list-outside ml-4 text-[13px] space-y-1 text-gray-800 leading-snug">
                     <li><strong>Bachelor's Degree in Economics</strong> | Universidad del Rosario, Bogotá, Colombia | 2018 <em>(Academic Excellence Scholarship)</em></li>
                     <li><strong>Data Science Career Program</strong> | Acamica (IBM & Globant Institution) | 2020</li>
@@ -857,7 +1069,16 @@ export default function App() {
 
                 {/* Certifications & Additional Info */}
                 <section>
-                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-2 pb-1 text-gray-800 tracking-wide">Certifications & Additional Info</h2>
+                  <h2 className="text-md font-bold uppercase border-b border-gray-300 mb-2 pb-1 text-gray-800 tracking-wide">
+                    {isEditing ? (
+                      <input 
+                        type="text" 
+                        value={currentCvData.sectionTitles.certifications} 
+                        onChange={(e) => updateSectionTitle('certifications', e.target.value)}
+                        className="w-full bg-gray-50 border-none p-0 focus:ring-0 font-bold uppercase"
+                      />
+                    ) : currentCvData.sectionTitles.certifications}
+                  </h2>
                   <ul className="list-disc list-outside ml-4 text-[13px] space-y-1 text-gray-800 leading-snug">
                     <li><strong>Certifications:</strong> Generative AI Leader (Google), AI-Powered Performance Ads (Google), Google Analytics, Scrum Master (SMPC), Scrum Product Owner (SPOPC).</li>
                     <li><strong>Languages:</strong> Spanish (Native), English (C1 - Fluent/Advanced), Portuguese (B2 - Upper-Intermediate).</li>
