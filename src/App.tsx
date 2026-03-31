@@ -34,6 +34,8 @@ interface CvData {
     education: string;
     certifications: string;
   };
+  education: string[];
+  certifications: string[];
 }
 
 const CV_DATA: CvData = {
@@ -108,7 +110,17 @@ const CV_DATA: CvData = {
     skills: "Key Skills",
     education: "Education",
     certifications: "Certifications & Additional Info"
-  }
+  },
+  education: [
+    "Bachelor's Degree in Economics | Universidad del Rosario, Bogotá, Colombia | 2018 (Academic Excellence Scholarship)",
+    "Data Science Career Program | Acamica (IBM & Globant Institution) | 2020"
+  ],
+  certifications: [
+    "Certifications: Generative AI Leader (Google), AI-Powered Performance Ads (Google), Google Analytics, Scrum Master (SMPC), Scrum Product Owner (SPOPC).",
+    "Languages: Spanish (Native), English (C1 - Fluent/Advanced), Portuguese (B2 - Upper-Intermediate).",
+    "Leadership & Social Impact: President of the Student Council, Faculty of Economics (Universidad del Rosario, 2016); Project Leader at Fundación Con Las Manos (Coordinated 30 volunteers).",
+    "Media Coverage: Featured in Portafolio (2025) regarding Ikonico's strategic positioning to lead the beauty and fragrance segment."
+  ]
 };
 
 interface JobMatch {
@@ -209,6 +221,40 @@ export default function App() {
         const newExp = [...prev.experience];
         newExp[expIdx] = { ...newExp[expIdx], [field]: value };
         return { ...prev, experience: newExp };
+      });
+    }
+  };
+
+  const updateEducationItem = (idx: number, value: string) => {
+    if (useOptimized && optimizedCv) {
+      setOptimizedCv(prev => {
+        if (!prev) return null;
+        const newEdu = [...prev.education];
+        newEdu[idx] = value;
+        return { ...prev, education: newEdu };
+      });
+    } else {
+      setCvDataState(prev => {
+        const newEdu = [...prev.education];
+        newEdu[idx] = value;
+        return { ...prev, education: newEdu };
+      });
+    }
+  };
+
+  const updateCertificationItem = (idx: number, value: string) => {
+    if (useOptimized && optimizedCv) {
+      setOptimizedCv(prev => {
+        if (!prev) return null;
+        const newCert = [...prev.certifications];
+        newCert[idx] = value;
+        return { ...prev, certifications: newCert };
+      });
+    } else {
+      setCvDataState(prev => {
+        const newCert = [...prev.certifications];
+        newCert[idx] = value;
+        return { ...prev, certifications: newCert };
       });
     }
   };
@@ -361,7 +407,7 @@ export default function App() {
       4. DO NOT change names, dates, companies, or roles.
       5. The tone should be professional, strategic, and subtle—avoiding obvious keyword stuffing or sounding like a direct copy-paste.
       6. Ensure the structure is highly readable for the specified ATS system (${targetAts}).
-      7. IMPORTANT: Translate the entire CV content (summary, experience bullets, skill categories, SECTION TITLES) into ${targetLanguage}. Make sure translated section titles are accurate and natural-sounding in ${targetLanguage}.
+      7. IMPORTANT: Translate the entire CV content (summary, experience bullets, skill categories, SECTION TITLES, education items, and certification items) into ${targetLanguage}. Make sure translated section titles are accurate and natural-sounding in ${targetLanguage}.
       8. MANDATORY: DO NOT include the name of the target company ("${targetCompany}") in the summary or any other part of the CV. This is a major AI giveaway.
       
       Return a JSON object with two fields:
@@ -370,7 +416,15 @@ export default function App() {
         - 'originalScore': (0-100) How well the original CV matched.
         - 'optimizedScore': (0-100) How well the optimized CV matches.
         - 'improvement': A brief explanation of the key improvements made, focusing on natural integration.
-        - 'keyChanges': An array of the top 3-4 strategic changes made, explaining *why* they enhance the CV's fit subtly.`;
+        - 'keyChanges': An array of the top 3-4 strategic changes made, explaining *why* they enhance the CV's fit subtly.
+      
+      The 'cv' object MUST include:
+      - name, secondLastName, summary
+      - experience (array of objects with company, role, period, location, bullets)
+      - skills (array of objects with category, items)
+      - sectionTitles (object with summary, experience, skills, education, certifications)
+      - education (array of strings)
+      - certifications (array of strings)`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview",
@@ -421,9 +475,17 @@ export default function App() {
                       certifications: { type: Type.STRING }
                     },
                     required: ["summary", "experience", "skills", "education", "certifications"]
+                  },
+                  education: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING }
+                  },
+                  certifications: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING }
                   }
                 },
-                required: ["name", "secondLastName", "summary", "experience", "skills", "sectionTitles"]
+                required: ["name", "secondLastName", "summary", "experience", "skills", "sectionTitles", "education", "certifications"]
               },
               fitAnalysis: {
                 type: Type.OBJECT,
@@ -1062,8 +1124,20 @@ export default function App() {
                     ) : currentCvData.sectionTitles.education}
                   </h2>
                   <ul className="list-disc list-outside ml-4 text-[13px] space-y-1 text-gray-800 leading-snug">
-                    <li><strong>Bachelor's Degree in Economics</strong> | Universidad del Rosario, Bogotá, Colombia | 2018 <em>(Academic Excellence Scholarship)</em></li>
-                    <li><strong>Data Science Career Program</strong> | Acamica (IBM & Globant Institution) | 2020</li>
+                    {currentCvData.education.map((edu, idx) => (
+                      <li key={idx}>
+                        {isEditing ? (
+                          <textarea 
+                            value={edu}
+                            onChange={(e) => updateEducationItem(idx, e.target.value)}
+                            className="w-full bg-gray-50 border border-gray-200 rounded px-1 mt-1"
+                            rows={2}
+                          />
+                        ) : (
+                          <span dangerouslySetInnerHTML={{ __html: edu.replace(/\|/g, '<span class="text-gray-400 mx-1">|</span>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>') }} />
+                        )}
+                      </li>
+                    ))}
                   </ul>
                 </section>
 
@@ -1080,10 +1154,20 @@ export default function App() {
                     ) : currentCvData.sectionTitles.certifications}
                   </h2>
                   <ul className="list-disc list-outside ml-4 text-[13px] space-y-1 text-gray-800 leading-snug">
-                    <li><strong>Certifications:</strong> Generative AI Leader (Google), AI-Powered Performance Ads (Google), Google Analytics, Scrum Master (SMPC), Scrum Product Owner (SPOPC).</li>
-                    <li><strong>Languages:</strong> Spanish (Native), English (C1 - Fluent/Advanced), Portuguese (B2 - Upper-Intermediate).</li>
-                    <li><strong>Leadership & Social Impact:</strong> President of the Student Council, Faculty of Economics (Universidad del Rosario, 2016); Project Leader at Fundación Con Las Manos (Coordinated 30 volunteers).</li>
-                    <li><strong>Media Coverage:</strong> Featured in <em>Portafolio</em> (2025) regarding Ikonico's strategic positioning to lead the beauty and fragrance segment.</li>
+                    {currentCvData.certifications.map((cert, idx) => (
+                      <li key={idx}>
+                        {isEditing ? (
+                          <textarea 
+                            value={cert}
+                            onChange={(e) => updateCertificationItem(idx, e.target.value)}
+                            className="w-full bg-gray-50 border border-gray-200 rounded px-1 mt-1"
+                            rows={2}
+                          />
+                        ) : (
+                          <span dangerouslySetInnerHTML={{ __html: cert.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>') }} />
+                        )}
+                      </li>
+                    ))}
                   </ul>
                 </section>
               </div>
