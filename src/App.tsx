@@ -352,19 +352,37 @@ export default function App() {
     setIsExtracting(true);
     setError(null);
     try {
+      // Step 1: Use a dedicated scraping API (Jina Reader) to extract clean markdown from the URL
+      const scrapeResponse = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`);
+      if (!scrapeResponse.ok) {
+        throw new Error("The scraping API could not access this URL. It might be protected against bots.");
+      }
+      const scrapedText = await scrapeResponse.text();
+
+      // Step 2: Use the cheaper Flash model to parse the extracted text
       const ai = getAiInstance();
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `You are a strict web scraper. Fetch the content from this job posting URL: ${url}. 
+        contents: `You are an expert data extractor. I have scraped the text content of a job posting.
+        
+        Here is the scraped text:
+        ---
+        ${scrapedText.substring(0, 40000)}
+        ---
+        
+        CRITICAL INSTRUCTIONS:
+        1. DO NOT hallucinate or guess information. If something is not explicitly stated in the text above, leave it blank or use "Unknown".
+        2. Extract the exact company name and job title.
+        3. Extract the EXACT, word-for-word job description from the text. Do not summarize, truncate, or rephrase it.
+        
         Return a JSON object with:
         - company: The exact hiring company name.
         - role: The exact job title.
-        - ats: The ATS system used (if identifiable, e.g. Workday, Greenhouse, Lever, Taleo, SuccessFactors, or "Other").
-        - language: The language the job is posted in.
-        - jobDescription: The EXACT, word-for-word job description from the page. DO NOT summarize, rephrase, or interpret. Copy the text exactly as it appears on the website.`,
+        - ats: The ATS system used (if identifiable from the URL or text, e.g. Workday, Greenhouse, Lever, Taleo, SuccessFactors, or "Other").
+        - language: The language the job is posted in (e.g., "English", "Spanish").
+        - jobDescription: The EXACT, word-for-word job description from the page.`,
         config: {
           temperature: 0,
-          tools: [{ urlContext: {} }],
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -398,41 +416,6 @@ export default function App() {
       }
     } finally {
       setIsExtracting(false);
-    }
-  };
-
-  // Auto-extract from clipboard when window gains focus
-  useEffect(() => {
-    const handleFocus = async () => {
-      if (activeTab === 'cv' && !isExtracting) {
-        try {
-          const text = await navigator.clipboard.readText();
-          if (text && (text.startsWith('http://') || text.startsWith('https://')) && text !== lastExtractedUrl && text !== jobPostingUrl) {
-            setJobPostingUrl(text);
-            extractJobDetails(text);
-          }
-        } catch (err) {
-          // Ignore errors silently (e.g. permission denied by browser)
-        }
-      }
-    };
-
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [activeTab, isExtracting, jobPostingUrl, lastExtractedUrl]);
-
-  const handleSmartPaste = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
-        setJobPostingUrl(text);
-        extractJobDetails(text);
-      } else {
-        setError("Clipboard does not contain a valid URL.");
-      }
-    } catch (err) {
-      console.error("Clipboard read failed:", err);
-      setError("Clipboard access denied by browser. Please click inside the input field and press Ctrl+V (or Cmd+V) to paste the URL.");
     }
   };
 
@@ -1500,28 +1483,12 @@ export default function App() {
                       <Link size={16} />
                       Job Posting Link
                     </label>
-                    <button 
-                      onClick={handleSmartPaste}
-                      className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 transition-colors"
-                      title="Paste from clipboard and extract details"
-                    >
-                      <Clipboard size={14} />
-                      Smart Copy (Paste & Extract)
-                    </button>
                   </div>
                   <div className="flex gap-2">
                     <input 
                       type="url" 
                       value={jobPostingUrl}
                       onChange={(e) => setJobPostingUrl(e.target.value)}
-                      onBlur={() => extractJobDetails(jobPostingUrl)}
-                      onPaste={(e) => {
-                        const pastedText = e.clipboardData.getData('text');
-                        if (pastedText && (pastedText.startsWith('http://') || pastedText.startsWith('https://'))) {
-                          // Allow the default paste to happen, but trigger extraction
-                          setTimeout(() => extractJobDetails(pastedText), 50);
-                        }
-                      }}
                       className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-sm"
                       placeholder="Paste the job posting URL here (e.g. LinkedIn, Indeed...)"
                     />
@@ -1545,7 +1512,7 @@ export default function App() {
                     </button>
                   </div>
                   <p className="text-[10px] text-indigo-700 italic">
-                    * Paste a link to automatically fill the company, role, ATS, and job description fields.
+                    * Paste a link and click Extract to automatically fill the company, role, ATS, and job description fields.
                   </p>
                 </div>
 
