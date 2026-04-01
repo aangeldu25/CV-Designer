@@ -359,7 +359,7 @@ export default function App() {
       }
       const scrapedText = await scrapeResponse.text();
 
-      // Step 2: Use the cheaper Flash model to parse the extracted text
+      // Step 2: Use the cheaper Flash model to parse ONLY the metadata
       const ai = getAiInstance();
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
@@ -367,20 +367,18 @@ export default function App() {
         
         Here is the scraped text:
         ---
-        ${scrapedText.substring(0, 40000)}
+        ${scrapedText.substring(0, 15000)}
         ---
         
         CRITICAL INSTRUCTIONS:
-        1. DO NOT hallucinate or guess information. If something is not explicitly stated in the text above, leave it blank or use "Unknown".
-        2. Extract the exact company name and job title.
-        3. Extract the EXACT, word-for-word job description from the text. Do not summarize, truncate, or rephrase it.
+        1. DO NOT hallucinate or guess information.
+        2. Extract ONLY the company name, job title, ATS, and language.
         
         Return a JSON object with:
         - company: The exact hiring company name.
         - role: The exact job title.
         - ats: The ATS system used (if identifiable from the URL or text, e.g. Workday, Greenhouse, Lever, Taleo, SuccessFactors, or "Other").
-        - language: The language the job is posted in (e.g., "English", "Spanish").
-        - jobDescription: The EXACT, word-for-word job description from the page.`,
+        - language: The language the job is posted in (e.g., "English", "Spanish").`,
         config: {
           temperature: 0,
           responseMimeType: "application/json",
@@ -390,10 +388,9 @@ export default function App() {
               company: { type: Type.STRING },
               role: { type: Type.STRING },
               ats: { type: Type.STRING },
-              language: { type: Type.STRING },
-              jobDescription: { type: Type.STRING }
+              language: { type: Type.STRING }
             },
-            required: ["company", "role", "ats", "language", "jobDescription"]
+            required: ["company", "role", "ats", "language"]
           }
         }
       });
@@ -403,7 +400,10 @@ export default function App() {
       if (data.role) setTargetRole(data.role);
       if (data.ats) setTargetAts(data.ats);
       if (data.language) setTargetLanguage(data.language);
-      if (data.jobDescription) setJobDescription(data.jobDescription);
+      
+      // INSTANTLY set the job description using the raw scraped text, 
+      // bypassing the slow token-by-token generation of the LLM.
+      setJobDescription(scrapedText);
       
       setLastExtractedUrl(url);
     } catch (err: any) {
