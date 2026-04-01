@@ -123,7 +123,7 @@ const CV_DATA: CvData = {
     "Certifications: Generative AI Leader (Google), AI-Powered Performance Ads (Google), Google Analytics, Scrum Master (SMPC), Scrum Product Owner (SPOPC).",
     "Languages: Spanish (Native), English (C1 - Fluent/Advanced), Portuguese (B2 - Upper-Intermediate).",
     "Leadership & Social Impact: President of the Student Council, Faculty of Economics (Universidad del Rosario, 2016); Project Leader at Fundación Con Las Manos (Coordinated 30 volunteers).",
-    "Media Coverage: Featured in Portafolio (2025) regarding Ikonico's strategic positioning to lead the beauty and fragrance segment."
+    "Media Coverage: Featured in [Portafolio (2025)](https://www.portafolio.co/negocios/empresas/esta-empresa-apuesta-por-liderar-el-segmento-de-perfumes-y-belleza-625271) regarding Ikonico's strategic positioning to lead the beauty and fragrance segment."
   ]
 };
 
@@ -1229,9 +1229,14 @@ export default function App() {
                       rows={4}
                     />
                   ) : (
-                    <p className="text-[13px] text-justify text-gray-800 leading-snug">
-                      {currentCvData.summary}
-                    </p>
+                    <p 
+                      className="text-[13px] text-justify text-gray-800 leading-snug"
+                      dangerouslySetInnerHTML={{ __html: currentCvData.summary
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                        .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">$1</a>')
+                      }}
+                    />
                   )}
                 </section>
 
@@ -1303,7 +1308,13 @@ export default function App() {
                                 className="w-full bg-gray-50 border border-gray-200 rounded p-1 focus:ring-1 focus:ring-indigo-500 outline-none mt-1"
                                 rows={2}
                               />
-                            ) : bullet}
+                            ) : (
+                              <span dangerouslySetInnerHTML={{ __html: bullet
+                                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                                .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">$1</a>')
+                              }} />
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -1353,7 +1364,12 @@ export default function App() {
                             rows={2}
                           />
                         ) : (
-                          <span dangerouslySetInnerHTML={{ __html: edu.replace(/\|/g, '<span class="text-gray-400 mx-1">|</span>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>') }} />
+                          <span dangerouslySetInnerHTML={{ __html: edu
+                            .replace(/\|/g, '<span class="text-gray-400 mx-1">|</span>')
+                            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                            .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">$1</a>')
+                          }} />
                         )}
                       </li>
                     ))}
@@ -1383,7 +1399,11 @@ export default function App() {
                             rows={2}
                           />
                         ) : (
-                          <span dangerouslySetInnerHTML={{ __html: cert.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>') }} />
+                          <span dangerouslySetInnerHTML={{ __html: cert
+                            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                            .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">$1</a>')
+                          }} />
                         )}
                       </li>
                     ))}
