@@ -344,9 +344,10 @@ export default function App() {
       interval = setInterval(() => {
         setExtractProgress(prev => {
           if (prev >= 99) return prev;
-          // Slow down significantly as it gets closer to 99%
+          // Linear-ish up to 85%, then slow down significantly
+          if (prev < 85) return prev + (85 - prev) * 0.1 + 0.5;
           const remaining = 100 - prev;
-          const increment = remaining > 20 ? remaining * 0.1 : remaining * 0.02;
+          const increment = remaining * 0.03;
           return prev + increment;
         });
       }, 500);
@@ -410,20 +411,39 @@ export default function App() {
         clearTimeout(timeoutId);
       }
 
+      if (scrapeResponse.status === 429) {
+        throw new Error("The scraping API limit has been reached. Please try again in a few minutes.");
+      }
+
+      if (scrapeResponse.status === 403) {
+        throw new Error("The scraping API was blocked by the target site. This often happens with highly protected sites like LinkedIn.");
+      }
+
       if (!scrapeResponse.ok) {
-        throw new Error("The scraping API could not access this URL. It might be protected against bots.");
+        throw new Error("The scraping API could not access this URL. It might be protected against bots or the URL is invalid.");
       }
       const scrapedText = await scrapeResponse.text();
 
+      if (scrapedText.length < 500 && (scrapedText.toLowerCase().includes("forbidden") || scrapedText.toLowerCase().includes("access denied") || scrapedText.toLowerCase().includes("robot") || scrapedText.toLowerCase().includes("captcha"))) {
+        throw new Error("The site is blocking the scraping attempt. This often happens with highly protected sites or when bot protection is triggered.");
+      }
+
+      // Pre-clean for AI: Remove large JSON blocks that Jina often includes for SPAs (like Eightfold)
+      // These are often wrapped in backticks and contain huge amounts of noise
+      const cleanedForAi = scrapedText
+        .replace(/`\{[\s\S]*?\}`/g, '[JSON Block]') 
+        .replace(/\{"themeOptions"[\s\S]*?\}/g, '[Theme JSON]')
+        .substring(0, 25000); 
+
       // Step 2: Use the cheaper Flash model to parse ONLY the metadata
       const ai = getAiInstance();
-      const response = await ai.models.generateContent({
+      const aiPromise = ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: `You are an expert data extractor. I have scraped the text content of a job posting.
         
         Here is the scraped text:
         ---
-        ${scrapedText.substring(0, 15000)}
+        ${cleanedForAi}
         ---
         
         CRITICAL INSTRUCTIONS:
@@ -459,6 +479,9 @@ export default function App() {
         }
       });
 
+      const aiTimeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("The AI model took too long to respond. Please try again.")), 25000));
+      const response = await Promise.race([aiPromise, aiTimeoutPromise]) as GenerateContentResponse;
+
       const data = JSON.parse(response.text || '{}');
       if (data.company) setTargetCompany(data.company);
       if (data.role) setTargetRole(data.role);
@@ -470,30 +493,44 @@ export default function App() {
       // Try to extract the exact job description block
       const buildRegex = (snippet: string) => {
         // Strip markdown symbols to match words only
-        const words = snippet.replace(/[*#_[\]()>-]/g, '').trim().split(/\s+/).filter((w: string) => w.length > 0);
+        const words = snippet.replace(/[*#_[\]()>-]/g, '').trim().split(/\s+/).filter((w: string) => w.length > 0).slice(0, 10);
         if (words.length === 0) return null;
         // Match words separated by any whitespace or markdown symbols
-        const regexStr = words.map((w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s*#_\\[\\]()>-]+');
-        return new RegExp(regexStr, 'i');
+        // We use a non-greedy wildcard to be more flexible and avoid ReDoS
+        const regexStr = words.map((w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s*#_\\[\\]()>-]{1,50}');
+        try {
+          return new RegExp(regexStr, 'i');
+        } catch (e) {
+          console.error("Invalid regex generated:", regexStr);
+          return null;
+        }
       };
 
       if (data.descriptionStartSnippet) {
-        const startRegex = buildRegex(data.descriptionStartSnippet);
-        if (startRegex) {
-          const startMatch = finalJobDescription.match(startRegex);
-          if (startMatch && startMatch.index !== undefined) {
-            finalJobDescription = finalJobDescription.substring(startMatch.index);
+        try {
+          const startRegex = buildRegex(data.descriptionStartSnippet);
+          if (startRegex) {
+            const startMatch = finalJobDescription.match(startRegex);
+            if (startMatch && startMatch.index !== undefined) {
+              finalJobDescription = finalJobDescription.substring(startMatch.index);
+            }
           }
+        } catch (e) {
+          console.warn("Start snippet matching failed:", e);
         }
       }
 
       if (data.descriptionEndSnippet) {
-        const endRegex = buildRegex(data.descriptionEndSnippet);
-        if (endRegex) {
-          const endMatch = finalJobDescription.match(endRegex);
-          if (endMatch && endMatch.index !== undefined) {
-            finalJobDescription = finalJobDescription.substring(0, endMatch.index + endMatch[0].length);
+        try {
+          const endRegex = buildRegex(data.descriptionEndSnippet);
+          if (endRegex) {
+            const endMatch = finalJobDescription.match(endRegex);
+            if (endMatch && endMatch.index !== undefined) {
+              finalJobDescription = finalJobDescription.substring(0, endMatch.index + endMatch[0].length);
+            }
           }
+        } catch (e) {
+          console.warn("End snippet matching failed:", e);
         }
       }
 
@@ -522,7 +559,20 @@ export default function App() {
         "Sign in to set job alerts", 
         "Similar jobs", 
         "People also viewed", 
-        "Show more jobs like this"
+        "Show more jobs like this",
+        "Sign in / Join now",
+        "Sign in\nJoin now",
+        "Join now\nSign in",
+        "About Help Center",
+        "Privacy & Terms",
+        "Ad Choices",
+        "Advertising",
+        "Business Services",
+        "Get the LinkedIn app",
+        "More...",
+        "© 2026 LinkedIn",
+        "© 2025 LinkedIn",
+        "© 2024 LinkedIn"
       ];
       for (const junk of footerJunk) {
          const junkIndex = finalJobDescription.indexOf(junk);
@@ -534,6 +584,14 @@ export default function App() {
       // 5. Clean up multiple newlines
       finalJobDescription = finalJobDescription.replace(/\n{3,}/g, '\n\n').trim();
 
+      // 6. Final check: if it still contains "Sign in" or "Join now" at the very beginning, strip it
+      if (finalJobDescription.startsWith("Sign in") || finalJobDescription.startsWith("Join now")) {
+          const firstNewline = finalJobDescription.indexOf('\n');
+          if (firstNewline > -1 && firstNewline < 100) {
+              finalJobDescription = finalJobDescription.substring(firstNewline).trim();
+          }
+      }
+
       setJobDescription(finalJobDescription);
       
       setLastExtractedUrl(url);
@@ -542,8 +600,12 @@ export default function App() {
       const errorMessage = err.message || String(err);
       if (errorMessage.includes("API Key is missing")) {
         setError(errorMessage);
+      } else if (errorMessage.includes("scraping API")) {
+        setError(errorMessage);
+      } else if (errorMessage.includes("Unexpected token")) {
+        setError("The AI returned an invalid response. Please try again.");
       } else {
-        setError("Failed to extract job details. Please ensure the URL is valid and accessible.");
+        setError(`Extraction failed: ${errorMessage.substring(0, 150)}. Please ensure the URL is valid.`);
       }
     } finally {
       setIsExtracting(false);
@@ -1659,9 +1721,11 @@ export default function App() {
                   <p className="text-[10px] text-indigo-700 italic">
                     * Paste a link and click Extract to automatically fill the company, role, ATS, and job description fields.
                   </p>
-                  {isExtracting && extractProgress > 80 && (
+                  {isExtracting && extractProgress > 75 && (
                     <p className="text-[10px] text-amber-600 font-medium mt-1 animate-pulse">
-                      Some sites (like Workday) require a full browser render and may take 15-20 seconds to load. Please wait...
+                      {extractProgress > 95 
+                        ? "Almost there... cleaning up the job description..." 
+                        : "Some sites (Workday, Eightfold) require a full browser render and may take 15-25 seconds. Please wait..."}
                     </p>
                   )}
                 </div>
