@@ -406,13 +406,19 @@ export default function App() {
         
         CRITICAL INSTRUCTIONS:
         1. DO NOT hallucinate or guess information.
-        2. Extract ONLY the company name, job title, ATS, and language.
+        2. Extract the company name, job title, ATS, and language.
+        3. To help me extract the exact job description quickly, provide the EXACT first 7 words of the actual job description as \`descriptionStartSnippet\`, and the EXACT last 7 words of the actual job description as \`descriptionEndSnippet\`.
+        - Ignore website navigation, headers, login prompts, "Sign in to access", "Similar jobs", "People also viewed", etc.
+        - The start snippet should be the very beginning of the role overview or about the company section.
+        - The end snippet should be the very end of the requirements, benefits, or location section, right before the website footer or similar jobs section.
         
         Return a JSON object with:
         - company: The exact hiring company name.
         - role: The exact job title.
         - ats: The ATS system used (if identifiable from the URL or text, e.g. Workday, Greenhouse, Lever, Taleo, SuccessFactors, or "Other").
-        - language: The language the job is posted in (e.g., "English", "Spanish").`,
+        - language: The language the job is posted in (e.g., "English", "Spanish").
+        - descriptionStartSnippet: The exact first 7 words of the job description.
+        - descriptionEndSnippet: The exact last 7 words of the job description.`,
         config: {
           temperature: 0,
           responseMimeType: "application/json",
@@ -422,9 +428,11 @@ export default function App() {
               company: { type: Type.STRING },
               role: { type: Type.STRING },
               ats: { type: Type.STRING },
-              language: { type: Type.STRING }
+              language: { type: Type.STRING },
+              descriptionStartSnippet: { type: Type.STRING },
+              descriptionEndSnippet: { type: Type.STRING }
             },
-            required: ["company", "role", "ats", "language"]
+            required: ["company", "role", "ats", "language", "descriptionStartSnippet", "descriptionEndSnippet"]
           }
         }
       });
@@ -435,9 +443,45 @@ export default function App() {
       if (data.ats) setTargetAts(data.ats);
       if (data.language) setTargetLanguage(data.language);
       
-      // INSTANTLY set the job description using the raw scraped text, 
-      // bypassing the slow token-by-token generation of the LLM.
-      setJobDescription(scrapedText);
+      let finalJobDescription = scrapedText;
+      
+      // Try to extract the exact job description block
+      if (data.descriptionStartSnippet && data.descriptionEndSnippet) {
+        const buildRegex = (snippet: string) => {
+          const words = snippet.trim().split(/\s+/).filter((w: string) => w.length > 0);
+          if (words.length === 0) return null;
+          // Escape regex chars and join with whitespace matcher
+          const regexStr = words.map((w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+');
+          return new RegExp(regexStr, 'i');
+        };
+        
+        const startRegex = buildRegex(data.descriptionStartSnippet);
+        const endRegex = buildRegex(data.descriptionEndSnippet);
+        
+        if (startRegex && endRegex) {
+          const startMatch = scrapedText.match(startRegex);
+          if (startMatch && startMatch.index !== undefined) {
+            const startIndex = startMatch.index;
+            const remainingText = scrapedText.substring(startIndex);
+            const endMatch = remainingText.match(endRegex);
+            if (endMatch && endMatch.index !== undefined) {
+              const endIndex = startIndex + endMatch.index + endMatch[0].length;
+              finalJobDescription = scrapedText.substring(startIndex, endIndex);
+            } else {
+              finalJobDescription = scrapedText.substring(startIndex);
+            }
+          }
+        }
+      }
+
+      // Clean up markdown images: ![alt](url)
+      finalJobDescription = finalJobDescription.replace(/!\[.*?\]\(.*?\)/g, '');
+      // Clean up markdown links: [text](url) -> text
+      finalJobDescription = finalJobDescription.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+      // Clean up multiple newlines
+      finalJobDescription = finalJobDescription.replace(/\n{3,}/g, '\n\n').trim();
+
+      setJobDescription(finalJobDescription);
       
       setLastExtractedUrl(url);
     } catch (err: any) {
