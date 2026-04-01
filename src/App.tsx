@@ -396,11 +396,36 @@ export default function App() {
       if (data.jobDescription) setJobDescription(data.jobDescription);
     } catch (err: any) {
       console.error("Extraction error:", err);
-      setError("Failed to extract job details. Please ensure the URL is valid and accessible.");
+      const errorMessage = err.message || String(err);
+      if (errorMessage.includes("API Key is missing")) {
+        setError(errorMessage);
+      } else {
+        setError("Failed to extract job details. Please ensure the URL is valid and accessible.");
+      }
     } finally {
       setIsExtracting(false);
     }
   };
+
+  // Auto-extract from clipboard when window gains focus
+  useEffect(() => {
+    const handleFocus = async () => {
+      if (activeTab === 'cv' && !isExtracting) {
+        try {
+          const text = await navigator.clipboard.readText();
+          if (text && (text.startsWith('http://') || text.startsWith('https://')) && text !== jobPostingUrl) {
+            setJobPostingUrl(text);
+            extractJobDetails(text);
+          }
+        } catch (err) {
+          // Ignore errors silently (e.g. permission denied by browser)
+        }
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [activeTab, isExtracting, jobPostingUrl]);
 
   const handleSmartPaste = async () => {
     try {
