@@ -15,7 +15,6 @@ declare global {
 interface CvData {
   firstName: string;
   lastName: string;
-  secondLastName: string;
   location: string;
   address: string;
   summary: string;
@@ -43,10 +42,9 @@ interface CvData {
 
 const CV_DATA: CvData = {
   firstName: "Alejandro",
-  lastName: "Angel",
-  secondLastName: "Duque",
+  lastName: "Angel Duque",
   location: "Bogotá, Colombia",
-  address: "CLL 101 16 50 PO 111101",
+  address: "CLL 101 16 50 PO 110111",
   summary: "Strategic and data-driven Business Development & Strategy Leader with over 8 years of experience scaling operations, driving revenue growth, and leading cross-functional teams in fast-paced, matrixed environments (including top-tier Fintech and Telecom). Proven track record of owning P&L, formulating Go-to-Market (GTM) strategies, and negotiating high-impact partnerships to unlock new business opportunities. Adept at translating complex data into actionable strategic initiatives that optimize operational efficiency, maximize ROI, and accelerate market expansion. Fluent in English, Spanish, and Portuguese.",
   experience: [
     { 
@@ -61,8 +59,8 @@ const CV_DATA: CvData = {
       ]
     },
     { 
-      company: "Liberty Caribbean (Contractor)", 
-      role: "BMC Operations Manager", 
+      company: "Liberty Caribbean", 
+      role: "BMC Operations Manager (Contractor)", 
       period: "November 2025 – January 2026",
       location: "Bogotá, Colombia",
       bullets: [
@@ -84,23 +82,23 @@ const CV_DATA: CvData = {
       ]
     },
     { 
-      company: "Joyerias Bauer (Official Rolex Distributor)", 
+      company: "Joyerías Bauer", 
       role: "Head of eCommerce & Digital Strategy", 
       period: "June 2019 – May 2021",
       location: "Bogota, Colombia",
       bullets: [
-        "Scaled New Business Lines: Formulated and executed the Go-to-Market strategy for a new mobile-first e-commerce platform, driving user acquisition and retention efforts that resulted in 211% YoY sales growth.",
+        "Official Rolex Distributor: Formulated and executed the Go-to-Market strategy for a new mobile-first e-commerce platform, driving user acquisition and retention efforts that resulted in 211% YoY sales growth.",
         "Market Expansion: Managed the launch and scaling of digital operations in a new LATAM market (Ecuador), overseeing end-to-end strategic execution and demonstrating the ability to manage complex, fast-paced international projects.",
         "Global-to-Local Strategy Adaptation: Adapted global corporate guidelines for prestigious brands (Rolex, Patek Philippe) to ensure local market relevance, leading to the operation being recognized by Rolex as a regional success story for best-in-class execution."
       ]
     },
     { 
-      company: "Linio (Rocket Internet / Falabella)", 
+      company: "Linio", 
       role: "Key Account Manager", 
       period: "July 2017 – August 2018",
       location: "Bogota, Colombia",
       bullets: [
-        "B2B Account Strategy: Developed and executed joint business plans and partnership initiatives for major global brands (Adidas, Nike, Hasbro), resulting in 74% sales growth (from $5M to $8.7M USD) for the managed portfolio.",
+        "Rocket Internet / Falabella: Developed and executed joint business plans and partnership initiatives for major global brands (Adidas, Nike, Hasbro), resulting in 74% sales growth (from $5M to $8.7M USD) for the managed portfolio.",
         "Data-Driven Business Growth: Utilized market insights and internal data to inform product specialization strategies, successfully increasing Average Order Value (AOV) and market share."
       ]
     }
@@ -194,14 +192,6 @@ export default function App() {
       setOptimizedCv(prev => prev ? { ...prev, lastName: value } : null);
     } else {
       setCvDataState(prev => ({ ...prev, lastName: value }));
-    }
-  };
-
-  const updateSecondLastName = (value: string) => {
-    if (useOptimized && optimizedCv) {
-      setOptimizedCv(prev => prev ? { ...prev, secondLastName: value } : null);
-    } else {
-      setCvDataState(prev => ({ ...prev, secondLastName: value }));
     }
   };
 
@@ -498,7 +488,7 @@ export default function App() {
         - 'keyChanges': An array of the top 3-4 strategic changes made, explaining *why* they enhance the CV's fit subtly.
       
       The 'cv' object MUST include:
-      - firstName, lastName, secondLastName, location, address, summary
+      - firstName, lastName, location, address, summary
       - experience (array of objects with company, role, period, location, bullets)
       - skills (array of objects with category, items)
       - sectionTitles (object with summary, experience, skills, education, certifications)
@@ -518,7 +508,6 @@ export default function App() {
                 properties: {
                   firstName: { type: Type.STRING },
                   lastName: { type: Type.STRING },
-                  secondLastName: { type: Type.STRING },
                   location: { type: Type.STRING },
                   address: { type: Type.STRING },
                   summary: { type: Type.STRING },
@@ -567,7 +556,7 @@ export default function App() {
                     items: { type: Type.STRING }
                   }
                 },
-                required: ["firstName", "lastName", "secondLastName", "location", "address", "summary", "experience", "skills", "sectionTitles", "education", "certifications"]
+                required: ["firstName", "lastName", "location", "address", "summary", "experience", "skills", "sectionTitles", "education", "certifications"]
               },
               fitAnalysis: {
                 type: Type.OBJECT,
@@ -642,7 +631,7 @@ export default function App() {
 
       if (isAiSelection) {
         searchPrompt = `Analyze this candidate's profile and find the best matching job opportunities across major global and local job boards (LinkedIn, Indeed, Glassdoor, Computrabajo, El Empleo, etc.):
-        - Name: ${cvDataState.firstName} ${cvDataState.lastName} ${cvDataState.secondLastName}
+        - Name: ${cvDataState.firstName} ${cvDataState.lastName}
         - Summary: ${cvDataState.summary}
         - Key Experience: ${cvDataState.experience.map(e => `${e.role} at ${e.company}`).join(', ')}
         - Skills: ${cvDataState.skills.map(s => s.items.join(', ')).join(', ')}
@@ -943,15 +932,22 @@ export default function App() {
                 <header className="text-center border-b-2 border-gray-900 pb-5 mb-5 relative">
                   {/* Hidden ATS Metadata */}
                   <div className="absolute top-0 left-0 text-[1px] text-white opacity-0 select-none pointer-events-none h-0 overflow-hidden" aria-hidden="true">
-                    Full Name: {currentCvData.firstName} {currentCvData.lastName} {currentCvData.secondLastName} | 
-                    Father Last Name: {currentCvData.lastName} | 
-                    Mother Last Name: {currentCvData.secondLastName} | 
+                    First Name: {currentCvData.firstName} | 
+                    Last Name: {currentCvData.lastName} | 
+                    Middle Name: None | 
+                    Father Last Name: Angel | 
+                    Mother Last Name: Duque | 
                     Location: {currentCvData.location} | 
                     Address: {currentCvData.address} | 
-                    Phone: (+57) 317 4117571 | 
+                    Postal Code: 110111 | 
+                    Country Code: +57 | 
+                    Phone Number: 3174117571 | 
                     Email: aangeldu@gmail.com | 
                     Education 1: Universidad del Rosario (Bogotá, Colombia) (January 2013 – December 2018) GPA: 3.99/5.0 | 
-                    Education 2: Acamica (Bogotá, Colombia) (September 2019 – May 2020)
+                    Education 2: Acamica (Bogotá, Colombia) (September 2019 – May 2020) |
+                    {currentCvData.experience.map((exp, idx) => (
+                      ` Experience ${idx + 1}: Company: ${exp.company} | Job Title: ${exp.role} | Dates: ${exp.period} | Location: ${exp.location} | `
+                    ))}
                   </div>
 
                   <h1 className="text-3xl font-bold tracking-wider mb-2">
@@ -961,7 +957,7 @@ export default function App() {
                           type="text" 
                           value={currentCvData.firstName} 
                           onChange={(e) => updateFirstName(e.target.value)}
-                          className="bg-gray-50 border-none p-0 focus:ring-0 font-bold text-center w-1/3"
+                          className="bg-gray-50 border-none p-0 focus:ring-0 font-bold text-center w-1/4"
                           placeholder="First Name"
                         />
                         <input 
@@ -971,20 +967,13 @@ export default function App() {
                           className="bg-gray-50 border-none p-0 focus:ring-0 font-bold text-center w-1/4"
                           placeholder="Last Name"
                         />
-                        <input 
-                          type="text" 
-                          value={currentCvData.secondLastName} 
-                          onChange={(e) => updateSecondLastName(e.target.value)}
-                          className="bg-gray-50 border-none p-0 focus:ring-0 font-bold text-center w-1/4"
-                          placeholder="Second Last Name"
-                        />
                       </div>
                     ) : (
-                      <>{currentCvData.firstName} {currentCvData.lastName} {currentCvData.secondLastName}</>
+                      <>{currentCvData.firstName} {currentCvData.lastName}</>
                     )}
                   </h1>
                   <p className="text-sm text-gray-600">
-                    (+57) 317 4117571 | aangeldu@gmail.com | <a href="https://linkedin.com/in/aangeldu/" className="text-blue-600 print:text-gray-900 print:no-underline">linkedin.com/in/aangeldu/</a>
+                    +57 3174117571 | aangeldu@gmail.com | <a href="https://linkedin.com/in/aangeldu/" className="text-blue-600 print:text-gray-900 print:no-underline">linkedin.com/in/aangeldu/</a>
                   </p>
                 </header>
 
