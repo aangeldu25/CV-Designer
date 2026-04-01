@@ -664,6 +664,7 @@ export default function App() {
       - Use the 'tbs=qdr:${searchRecency === '24h' ? 'd' : searchRecency === '7d' ? 'w' : 'm'}' parameter.
       
       ZERO TOLERANCE FOR BROKEN LINKS, CATALOGS & REDIRECTS:
+      - CRITICAL BUG FIX: You have a tendency to hallucinate job URLs (e.g. inventing 'https://jobs.ashbyhq.com/arq/general-manager-colombia' instead of the real 'https://jobs.ashbyhq.com/arq/f7f0d1b6-8ce8-4f8b-959f-9cda1f3020c0'). You MUST copy the EXACT, raw URL from the Google Search results. Do NOT construct or guess URLs.
       - DISCARD any link containing "/jobs/search", "/jobs/collections", "/jobs/index", "/jobs/catalog", "/jobs/all", or "/jobs/list".
       - DISCARD any link that leads to a list of jobs or a search results page.
       - The link MUST be a direct "view" URL for a single job (e.g., linkedin.com/jobs/view/..., indeed.com/viewjob?jk=...).
@@ -722,7 +723,7 @@ export default function App() {
         throw new Error("The AI couldn't find any specific job results at this moment. Please try a different role or location.");
       }
 
-      let results;
+      let results: any[] = [];
       try {
         results = JSON.parse(response.text);
       } catch (e) {
@@ -732,6 +733,31 @@ export default function App() {
         } else {
           throw e;
         }
+      }
+      
+      // Fix hallucinated links using Google Search grounding metadata
+      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      if (chunks && Array.isArray(chunks)) {
+        results = results.map(job => {
+          // Find the best matching chunk for this job
+          const match = chunks.find(c => {
+            if (!c.web || !c.web.uri) return false;
+            const chunkTitle = c.web.title.toLowerCase();
+            const jobTitle = job.title.toLowerCase();
+            const jobCompany = job.company.toLowerCase();
+            
+            // Check if the chunk title contains the job title or company
+            return chunkTitle.includes(jobTitle) || 
+                   chunkTitle.includes(jobCompany) || 
+                   jobTitle.includes(chunkTitle);
+          });
+          
+          if (match && match.web && match.web.uri) {
+            // Replace the hallucinated link with the real, verified Google Search link
+            return { ...job, link: match.web.uri };
+          }
+          return job;
+        });
       }
       
       if (results.length === 0) {
