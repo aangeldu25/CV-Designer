@@ -42,7 +42,7 @@ interface CvData {
 
 const CV_DATA: CvData = {
   firstName: "Alejandro",
-  lastName: "Angel",
+  lastName: "Angel Duque",
   location: "Bogotá, Colombia",
   address: "CLL 101 16 50 PO 110111",
   summary: "Strategic and data-driven Business Development & Strategy Leader with over 8 years of experience scaling operations, driving revenue growth, and leading cross-functional teams in fast-paced, matrixed environments (including top-tier Fintech and Telecom). Proven track record of owning P&L, formulating Go-to-Market (GTM) strategies, and negotiating high-impact partnerships to unlock new business opportunities. Adept at translating complex data into actionable strategic initiatives that optimize operational efficiency, maximize ROI, and accelerate market expansion. Fluent in English, Spanish, and Portuguese.",
@@ -988,6 +988,23 @@ export default function App() {
     }
   };
 
+  const getAtsDates = (period: string) => {
+    const monthMap: { [key: string]: string } = {
+      'January': '01', 'February': '02', 'March': '03', 'April': '04', 'May': '05', 'June': '06',
+      'July': '07', 'August': '08', 'September': '09', 'October': '10', 'November': '11', 'December': '12'
+    };
+    
+    const parts = period.split(/ – | - /);
+    return parts.map(part => {
+      const match = part.match(/([a-zA-Z]+)\s+(\d{4})/);
+      if (match) {
+        const month = monthMap[match[1]] || '01';
+        return `${match[2]}-${month}`;
+      }
+      return part;
+    }).join(' to ');
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Navigation Bar */}
@@ -1162,6 +1179,7 @@ export default function App() {
                   <div className="absolute top-0 left-0 text-[1px] text-white opacity-0 select-none pointer-events-none h-0 overflow-hidden" aria-hidden="true">
                     First Name: {currentCvData.firstName} | 
                     Last Name: {currentCvData.lastName} | 
+                    Full Name: {currentCvData.firstName} {currentCvData.lastName} | 
                     Middle Name: Duque | 
                     Father Last Name: Angel | 
                     Mother Last Name: Duque | 
@@ -1178,8 +1196,9 @@ export default function App() {
                     Education 1: Universidad del Rosario (Bogotá, Colombia) (January 2013 – December 2018) GPA: 3.99/5.0 | 
                     Education 2: Acamica (Bogotá, Colombia) (September 2019 – May 2020) |
                     {currentCvData.experience.map((exp, idx) => (
-                      ` Experience ${idx + 1}: Company: ${exp.company} | Job Title: ${exp.role} | Dates: ${exp.period} | Location: ${exp.location} | `
+                      ` Experience ${idx + 1}: Company: ${exp.company} | Job Title: ${exp.role} | Dates: ${exp.period} | Standardized Dates: ${getAtsDates(exp.period)} | Location: ${exp.location} | `
                     ))}
+                    Skills: {currentCvData.skills.map(s => `${s.category}: ${s.items.join(', ')}`).join(' | ')} |
                   </div>
 
                   <h1 className="text-3xl font-bold tracking-wider mb-2">
