@@ -366,7 +366,7 @@ export default function App() {
     }
   };
 
-  const currentCvData = useOptimized && optimizedCv ? optimizedCv : CV_DATA;
+  const currentCvData = useOptimized && optimizedCv ? optimizedCv : cvDataState;
 
   const handlePrint = () => {
     window.print();
@@ -396,7 +396,7 @@ export default function App() {
       ${jobDescription}
       
       ORIGINAL CV DATA:
-      ${JSON.stringify(CV_DATA)}
+      ${JSON.stringify(cvDataState)}
       
       INSTRUCTIONS:
       1. Rewrite the 'summary' to emphasize relevant experience for this specific job. Focus on solving the problems mentioned in the job description, using natural language. 
@@ -407,7 +407,11 @@ export default function App() {
       4. DO NOT change names, dates, companies, or roles.
       5. The tone should be professional, strategic, and subtle—avoiding obvious keyword stuffing or sounding like a direct copy-paste.
       6. Ensure the structure is highly readable for the specified ATS system (${targetAts}).
-      7. IMPORTANT: Translate the entire CV content (summary, experience bullets, skill categories, SECTION TITLES, education items, and certification items) into ${targetLanguage}. Make sure translated section titles are accurate and natural-sounding in ${targetLanguage}.
+      7. IMPORTANT: Translate the entire CV content (summary, experience bullets, skill categories, SECTION TITLES, education items, and certification items) into ${targetLanguage}. 
+         - MANDATORY: Every single item in the 'education' and 'certifications' arrays MUST be translated into ${targetLanguage}. 
+         - This includes translating labels like "Certifications:", "Languages:", "Media Coverage:", etc., and the content following them.
+         - Do not leave any item in English if the target language is different.
+         - Make sure translated section titles are accurate and natural-sounding in ${targetLanguage}.
       8. MANDATORY: DO NOT include the name of the target company ("${targetCompany}") in the summary or any other part of the CV. This is a major AI giveaway.
       
       Return a JSON object with two fields:
@@ -563,10 +567,10 @@ export default function App() {
 
       if (isAiSelection) {
         searchPrompt = `Analyze this candidate's profile and find the best matching job opportunities across major global and local job boards (LinkedIn, Indeed, Glassdoor, Computrabajo, El Empleo, etc.):
-        - Name: ${CV_DATA.name}
-        - Summary: ${CV_DATA.summary}
-        - Key Experience: ${CV_DATA.experience.map(e => `${e.role} at ${e.company}`).join(', ')}
-        - Skills: ${CV_DATA.skills.map(s => s.items.join(', ')).join(', ')}
+        - Name: ${cvDataState.name}
+        - Summary: ${cvDataState.summary}
+        - Key Experience: ${cvDataState.experience.map(e => `${e.role} at ${e.company}`).join(', ')}
+        - Skills: ${cvDataState.skills.map(s => s.items.join(', ')).join(', ')}
         
         Search for real, active job postings in "${searchLocation}".
         Filters:
@@ -958,7 +962,13 @@ export default function App() {
                       Switch to {useOptimized ? "Original" : "Tailored"}
                     </button>
                     <button 
-                      onClick={() => { setOptimizedCv(null); setFitAnalysis(null); setUseOptimized(false); setIsEditing(false); }}
+                      onClick={() => { 
+                        setOptimizedCv(null); 
+                        setFitAnalysis(null); 
+                        setUseOptimized(false); 
+                        setIsEditing(false); 
+                        setCvDataState(CV_DATA);
+                      }}
                       className="text-xs font-bold uppercase tracking-wider px-3 py-1.5 text-red-600 hover:bg-red-50 rounded transition-colors flex items-center gap-1"
                     >
                       <RotateCcw size={12} /> Reset
