@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Edit3, Briefcase, FileText, Search, ExternalLink, Sparkles, Loader2, CheckCircle2, Wand2, RotateCcw, Plus, Check, Save, X } from 'lucide-react';
+import { Download, Edit3, Briefcase, FileText, Search, ExternalLink, Sparkles, Loader2, CheckCircle2, Wand2, RotateCcw, Plus, Check, Save, X, Link, Clipboard } from 'lucide-react';
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 
 // Add type declaration for AI Studio global functions
@@ -13,8 +13,11 @@ declare global {
 }
 
 interface CvData {
-  name: string;
+  firstName: string;
+  lastName: string;
   secondLastName: string;
+  location: string;
+  address: string;
   summary: string;
   experience: {
     company: string;
@@ -39,8 +42,11 @@ interface CvData {
 }
 
 const CV_DATA: CvData = {
-  name: "Alejandro Angel",
+  firstName: "Alejandro",
+  lastName: "Angel",
   secondLastName: "Duque",
+  location: "Bogotá, Colombia",
+  address: "CLL 101 16 50 PO 111101",
   summary: "Strategic and data-driven Business Development & Strategy Leader with over 8 years of experience scaling operations, driving revenue growth, and leading cross-functional teams in fast-paced, matrixed environments (including top-tier Fintech and Telecom). Proven track record of owning P&L, formulating Go-to-Market (GTM) strategies, and negotiating high-impact partnerships to unlock new business opportunities. Adept at translating complex data into actionable strategic initiatives that optimize operational efficiency, maximize ROI, and accelerate market expansion. Fluent in English, Spanish, and Portuguese.",
   experience: [
     { 
@@ -112,8 +118,8 @@ const CV_DATA: CvData = {
     certifications: "Certifications & Additional Info"
   },
   education: [
-    "Bachelor's Degree in Economics | Universidad del Rosario, Bogotá, Colombia | 2018 (Academic Excellence Scholarship)",
-    "Data Science Career Program | Acamica (IBM & Globant Institution) | 2020"
+    "Bachelor's Degree in Economics | Universidad del Rosario, Bogotá, Colombia | January 2013 – December 2018 | GPA: 3.99/5.0 (Academic Excellence Scholarship)",
+    "Data Science Career Program | Acamica (IBM & Globant Institution), Bogotá, Colombia | September 2019 – May 2020"
   ],
   certifications: [
     "Certifications: Generative AI Leader (Google), AI-Powered Performance Ads (Google), Google Analytics, Scrum Master (SMPC), Scrum Product Owner (SPOPC).",
@@ -165,6 +171,8 @@ export default function App() {
   const [targetRole, setTargetRole] = useState('');
   const [targetAts, setTargetAts] = useState('Workday');
   const [targetLanguage, setTargetLanguage] = useState('English');
+  const [jobPostingUrl, setJobPostingUrl] = useState('');
+  const [isExtracting, setIsExtracting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [cvDataState, setCvDataState] = useState<CvData>(CV_DATA);
   const [optimizedCv, setOptimizedCv] = useState<CvData | null>(null);
@@ -172,6 +180,46 @@ export default function App() {
   const [useOptimized, setUseOptimized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasApiKey, setHasApiKey] = useState(false);
+
+  const updateFirstName = (value: string) => {
+    if (useOptimized && optimizedCv) {
+      setOptimizedCv(prev => prev ? { ...prev, firstName: value } : null);
+    } else {
+      setCvDataState(prev => ({ ...prev, firstName: value }));
+    }
+  };
+
+  const updateLastName = (value: string) => {
+    if (useOptimized && optimizedCv) {
+      setOptimizedCv(prev => prev ? { ...prev, lastName: value } : null);
+    } else {
+      setCvDataState(prev => ({ ...prev, lastName: value }));
+    }
+  };
+
+  const updateSecondLastName = (value: string) => {
+    if (useOptimized && optimizedCv) {
+      setOptimizedCv(prev => prev ? { ...prev, secondLastName: value } : null);
+    } else {
+      setCvDataState(prev => ({ ...prev, secondLastName: value }));
+    }
+  };
+
+  const updateLocation = (value: string) => {
+    if (useOptimized && optimizedCv) {
+      setOptimizedCv(prev => prev ? { ...prev, location: value } : null);
+    } else {
+      setCvDataState(prev => ({ ...prev, location: value }));
+    }
+  };
+
+  const updateAddress = (value: string) => {
+    if (useOptimized && optimizedCv) {
+      setOptimizedCv(prev => prev ? { ...prev, address: value } : null);
+    } else {
+      setCvDataState(prev => ({ ...prev, address: value }));
+    }
+  };
 
   const updateSectionTitle = (key: keyof CvData['sectionTitles'], value: string) => {
     if (useOptimized && optimizedCv) {
@@ -372,6 +420,66 @@ export default function App() {
     window.print();
   };
 
+  const extractJobDetails = async (url: string) => {
+    if (!url) return;
+    setIsExtracting(true);
+    setError(null);
+    try {
+      const ai = getAiInstance();
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Extract the following details from this job posting URL: ${url}. 
+        Return a JSON object with:
+        - company: The hiring company name.
+        - role: The job title.
+        - ats: The ATS system used (if identifiable, e.g. Workday, Greenhouse, Lever, Taleo, SuccessFactors, or "Other").
+        - language: The language the job is posted in.
+        - jobDescription: The full, cleaned job description (remove navigation, headers, footers, and other non-job-related text).`,
+        config: {
+          tools: [{ urlContext: {} }],
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              company: { type: Type.STRING },
+              role: { type: Type.STRING },
+              ats: { type: Type.STRING },
+              language: { type: Type.STRING },
+              jobDescription: { type: Type.STRING }
+            },
+            required: ["company", "role", "ats", "language", "jobDescription"]
+          }
+        }
+      });
+
+      const data = JSON.parse(response.text || '{}');
+      if (data.company) setTargetCompany(data.company);
+      if (data.role) setTargetRole(data.role);
+      if (data.ats) setTargetAts(data.ats);
+      if (data.language) setTargetLanguage(data.language);
+      if (data.jobDescription) setJobDescription(data.jobDescription);
+    } catch (err: any) {
+      console.error("Extraction error:", err);
+      setError("Failed to extract job details. Please ensure the URL is valid and accessible.");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const handleSmartPaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
+        setJobPostingUrl(text);
+        extractJobDetails(text);
+      } else {
+        setError("Clipboard does not contain a valid URL.");
+      }
+    } catch (err) {
+      setError("Failed to read from clipboard. Please paste the URL manually.");
+    }
+  };
+
   const optimizeCv = async () => {
     if (!jobDescription.trim()) return;
     setIsOptimizing(true);
@@ -403,6 +511,7 @@ export default function App() {
          - AVOID AI cliches like "I am a...", "With a proven track record of...", "Passionate about...". 
          - START with direct, high-impact statements.
       2. For each 'experience' item, rewrite the 'bullets' to highlight achievements and skills that match the job description. Ensure the language is subtle and professional.
+         - MANDATORY: Keep the 'period' (dates) in a strict "Month YYYY – Month YYYY" or "Month YYYY – Present" format. This is critical for ATS parsing.
       3. Use universal, ATS-friendly terminology for skills and achievements. Translate ALL content, including section titles (e.g., 'Professional Summary', 'Experience', 'Skills', 'Education', 'Certifications'), to the target language.
       4. DO NOT change names, dates, companies, or roles.
       5. The tone should be professional, strategic, and subtle—avoiding obvious keyword stuffing or sounding like a direct copy-paste.
@@ -423,7 +532,7 @@ export default function App() {
         - 'keyChanges': An array of the top 3-4 strategic changes made, explaining *why* they enhance the CV's fit subtly.
       
       The 'cv' object MUST include:
-      - name, secondLastName, summary
+      - firstName, lastName, secondLastName, location, address, summary
       - experience (array of objects with company, role, period, location, bullets)
       - skills (array of objects with category, items)
       - sectionTitles (object with summary, experience, skills, education, certifications)
@@ -441,8 +550,11 @@ export default function App() {
               cv: {
                 type: Type.OBJECT,
                 properties: {
-                  name: { type: Type.STRING },
+                  firstName: { type: Type.STRING },
+                  lastName: { type: Type.STRING },
                   secondLastName: { type: Type.STRING },
+                  location: { type: Type.STRING },
+                  address: { type: Type.STRING },
                   summary: { type: Type.STRING },
                   experience: {
                     type: Type.ARRAY,
@@ -567,7 +679,7 @@ export default function App() {
 
       if (isAiSelection) {
         searchPrompt = `Analyze this candidate's profile and find the best matching job opportunities across major global and local job boards (LinkedIn, Indeed, Glassdoor, Computrabajo, El Empleo, etc.):
-        - Name: ${cvDataState.name}
+        - Name: ${cvDataState.firstName} ${cvDataState.lastName} ${cvDataState.secondLastName}
         - Summary: ${cvDataState.summary}
         - Key Experience: ${cvDataState.experience.map(e => `${e.role} at ${e.company}`).join(', ')}
         - Skills: ${cvDataState.skills.map(s => s.items.join(', ')).join(', ')}
@@ -993,8 +1105,49 @@ export default function App() {
               <div className="font-sans text-gray-900 leading-relaxed">
                 
                 {/* Header */}
-                <header className="text-center border-b-2 border-gray-900 pb-5 mb-5">
-                  <h1 className="text-3xl font-bold tracking-wider mb-2">{currentCvData.name} {currentCvData.secondLastName}</h1>
+                <header className="text-center border-b-2 border-gray-900 pb-5 mb-5 relative">
+                  {/* Hidden ATS Metadata */}
+                  <div className="absolute top-0 left-0 text-[1px] text-white opacity-0 select-none pointer-events-none h-0 overflow-hidden" aria-hidden="true">
+                    Full Name: {currentCvData.firstName} {currentCvData.lastName} {currentCvData.secondLastName} | 
+                    Father Last Name: {currentCvData.lastName} | 
+                    Mother Last Name: {currentCvData.secondLastName} | 
+                    Location: {currentCvData.location} | 
+                    Address: {currentCvData.address} | 
+                    Phone: (+57) 317 4117571 | 
+                    Email: aangeldu@gmail.com | 
+                    Education 1: Universidad del Rosario (Bogotá, Colombia) (January 2013 – December 2018) GPA: 3.99/5.0 | 
+                    Education 2: Acamica (Bogotá, Colombia) (September 2019 – May 2020)
+                  </div>
+
+                  <h1 className="text-3xl font-bold tracking-wider mb-2">
+                    {isEditing ? (
+                      <div className="flex justify-center gap-2">
+                        <input 
+                          type="text" 
+                          value={currentCvData.firstName} 
+                          onChange={(e) => updateFirstName(e.target.value)}
+                          className="bg-gray-50 border-none p-0 focus:ring-0 font-bold text-center w-1/3"
+                          placeholder="First Name"
+                        />
+                        <input 
+                          type="text" 
+                          value={currentCvData.lastName} 
+                          onChange={(e) => updateLastName(e.target.value)}
+                          className="bg-gray-50 border-none p-0 focus:ring-0 font-bold text-center w-1/4"
+                          placeholder="Last Name"
+                        />
+                        <input 
+                          type="text" 
+                          value={currentCvData.secondLastName} 
+                          onChange={(e) => updateSecondLastName(e.target.value)}
+                          className="bg-gray-50 border-none p-0 focus:ring-0 font-bold text-center w-1/4"
+                          placeholder="Second Last Name"
+                        />
+                      </div>
+                    ) : (
+                      <>{currentCvData.firstName} {currentCvData.lastName} {currentCvData.secondLastName}</>
+                    )}
+                  </h1>
                   <p className="text-sm text-gray-600">
                     (+57) 317 4117571 | aangeldu@gmail.com | <a href="https://linkedin.com/in/aangeldu/" className="text-blue-600 print:text-gray-900 print:no-underline">linkedin.com/in/aangeldu/</a>
                   </p>
@@ -1491,6 +1644,54 @@ export default function App() {
               </div>
               
               <div className="p-6">
+                <div className="mb-6 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-bold text-indigo-900 flex items-center gap-2">
+                      <Link size={16} />
+                      Job Posting Link
+                    </label>
+                    <button 
+                      onClick={handleSmartPaste}
+                      className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 transition-colors"
+                      title="Paste from clipboard and extract details"
+                    >
+                      <Clipboard size={14} />
+                      Smart Copy (Paste & Extract)
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input 
+                      type="url" 
+                      value={jobPostingUrl}
+                      onChange={(e) => setJobPostingUrl(e.target.value)}
+                      onBlur={() => extractJobDetails(jobPostingUrl)}
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-sm"
+                      placeholder="Paste the job posting URL here (e.g. LinkedIn, Indeed...)"
+                    />
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(jobPostingUrl);
+                        // Optional: show some feedback
+                      }}
+                      title="Copy link to clipboard"
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-gray-500 hover:text-indigo-600 hover:border-indigo-600 transition-all"
+                    >
+                      <Clipboard size={16} />
+                    </button>
+                    <button 
+                      onClick={() => extractJobDetails(jobPostingUrl)}
+                      disabled={isExtracting || !jobPostingUrl.trim()}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                    >
+                      {isExtracting ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} />}
+                      Extract
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-indigo-700 italic">
+                    * Paste a link to automatically fill the company, role, ATS, and job description fields.
+                  </p>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Target Company</label>
@@ -1545,7 +1746,17 @@ export default function App() {
                 </div>
 
                 <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Job Description</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium text-gray-700">Job Description</label>
+                    <button 
+                      onClick={() => navigator.clipboard.writeText(jobDescription)}
+                      className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 transition-colors"
+                      title="Copy job description to clipboard"
+                    >
+                      <Clipboard size={14} />
+                      Copy Description
+                    </button>
+                  </div>
                   <textarea 
                     value={jobDescription}
                     onChange={(e) => {
