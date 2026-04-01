@@ -179,7 +179,6 @@ export default function App() {
   const [fitAnalysis, setFitAnalysis] = useState<FitAnalysis | null>(null);
   const [useOptimized, setUseOptimized] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasApiKey, setHasApiKey] = useState(false);
 
   const updateFirstName = (value: string) => {
     if (useOptimized && optimizedCv) {
@@ -306,10 +305,6 @@ export default function App() {
       });
     }
   };
-  const [manualApiKey, setManualApiKey] = useState('');
-  const [showManualInput, setShowManualInput] = useState(false);
-  const [isTestingKey, setIsTestingKey] = useState(false);
-  const [testSuccess, setTestSuccess] = useState(false);
   const [searchProgress, setSearchProgress] = useState(0);
   const [searchReasoning, setSearchReasoning] = useState('');
 
@@ -349,69 +344,10 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isSearching]);
 
-  useEffect(() => {
-    console.log("AI Studio Platform API Status:", !!window.aistudio);
-    const checkKey = async () => {
-      if (window.aistudio?.hasSelectedApiKey) {
-        try {
-          const selected = await window.aistudio.hasSelectedApiKey();
-          console.log("API Key already selected:", selected);
-          setHasApiKey(selected);
-        } catch (e) {
-          console.error("Error checking API key status:", e);
-        }
-      }
-    };
-    checkKey();
-  }, []);
-
-  const handleSelectKey = async () => {
-    console.log("Attempting to open API key selection dialog...");
-    if (window.aistudio?.openSelectKey) {
-      try {
-        await window.aistudio.openSelectKey();
-        console.log("API key selection dialog triggered successfully.");
-        setHasApiKey(true);
-        setError(null);
-      } catch (e) {
-        console.error("Error opening API key selection dialog:", e);
-        setError("Failed to open the API key selection dialog. Please ensure you are using the AI Studio Build environment.");
-      }
-    } else {
-      console.warn("AI Studio platform API (window.aistudio) is not available.");
-      setShowManualInput(true);
-      setError(null);
-    }
-  };
-
   const getAiInstance = () => {
-    // Priority: 1. Manually pasted key, 2. Platform selected key, 3. Environment variable
-    const apiKey = manualApiKey || (hasApiKey && process.env.API_KEY ? process.env.API_KEY : (process.env.GEMINI_API_KEY || ''));
-    if (!apiKey) throw new Error("API Key is missing. Please enter an API key or check your environment settings.");
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("API Key is missing. Please check your environment settings.");
     return new GoogleGenAI({ apiKey });
-  };
-
-  const testConnection = async () => {
-    setIsTestingKey(true);
-    setTestSuccess(false);
-    setError(null);
-    try {
-      const ai = getAiInstance();
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: "Hello",
-        config: { thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } }
-      });
-      if (response.text) {
-        setTestSuccess(true);
-        setTimeout(() => setTestSuccess(false), 5000);
-      }
-    } catch (err: any) {
-      console.error("Connection test failed:", err);
-      setError("Connection test failed: " + (err.message || "Invalid API key or network error."));
-    } finally {
-      setIsTestingKey(false);
-    }
   };
 
   const currentCvData = useOptimized && optimizedCv ? optimizedCv : cvDataState;
@@ -476,7 +412,8 @@ export default function App() {
         setError("Clipboard does not contain a valid URL.");
       }
     } catch (err) {
-      setError("Failed to read from clipboard. Please paste the URL manually.");
+      console.error("Clipboard read failed:", err);
+      setError("Clipboard access denied by browser. Please click inside the input field and press Ctrl+V (or Cmd+V) to paste the URL.");
     }
   };
 
@@ -640,10 +577,7 @@ export default function App() {
     } catch (err: any) {
       console.error("Optimization error:", err);
       const errorMessage = err.message || String(err);
-      if (errorMessage.includes("API key not valid") || errorMessage.includes("INVALID_ARGUMENT") || errorMessage.includes("API_KEY_INVALID")) {
-        setHasApiKey(false);
-        setError("The API key is invalid. Please click 'Select API Key' below to provide a valid Google Cloud API key.");
-      } else if (errorMessage.includes("429") || errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("quota")) {
+      if (errorMessage.includes("429") || errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("quota")) {
         setError("You have exceeded your Gemini API quota. This usually means you've made too many requests in a short period on a free-tier key. Please wait a minute and try again, or check your billing settings at ai.google.dev.");
       } else {
         setError(errorMessage || "Failed to optimize CV. Please try again.");
@@ -717,6 +651,7 @@ export default function App() {
       - The link MUST be a direct "view" URL for a single job (e.g., linkedin.com/jobs/view/..., indeed.com/viewjob?jk=...).
       - NEVER provide a link to a company's general career portal or a "Join our talent community" page.
       - NEVER guess or hallucinate a URL. If you cannot find a direct link, do not include the job.
+      - CRITICAL: Ensure the URL is complete and properly formatted. Do not truncate URLs.
       
       SOURCE AUTHORITY & HIERARCHY:
       - Prioritize LinkedIn and Indeed above all else. They are the gold standard for direct links.
@@ -794,10 +729,7 @@ export default function App() {
     } catch (err: any) {
       console.error("Error finding jobs:", err);
       const errorMessage = err.message || String(err);
-      if (errorMessage.includes("API key not valid") || errorMessage.includes("INVALID_ARGUMENT") || errorMessage.includes("API_KEY_INVALID")) {
-        setHasApiKey(false);
-        setError("The API key is invalid. Please click 'Select API Key' below to provide a valid Google Cloud API key.");
-      } else if (errorMessage.includes("429") || errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("quota")) {
+      if (errorMessage.includes("429") || errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("quota")) {
         setError("You have exceeded your Gemini API quota. This usually means you've made too many requests in a short period on a free-tier key. Please wait a minute and try again, or check your billing settings at ai.google.dev.");
       } else {
         setError(errorMessage || "An unexpected error occurred while searching for jobs. Please try again.");
@@ -857,133 +789,7 @@ export default function App() {
       </nav>
 
       <main className="flex-grow py-8 px-4 sm:px-6 lg:px-8">
-        {/* Global AI Status Banner */}
         <div className="max-w-5xl mx-auto mb-8 print:hidden">
-          <div className={`p-4 rounded-xl border ${
-            (hasApiKey || manualApiKey) 
-              ? 'bg-green-50 border-green-100 text-green-800' 
-              : 'bg-amber-50 border-amber-100 text-amber-800'
-          } shadow-sm transition-all`}>
-            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-full ${
-                  (hasApiKey || manualApiKey) ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'
-                }`}>
-                  <Sparkles size={20} />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm flex items-center gap-2">
-                    AI Ecosystem Status: 
-                    {(hasApiKey || manualApiKey) ? (
-                      <span className="flex items-center gap-1 text-green-600">
-                        <CheckCircle2 size={14} /> Active & Ready
-                      </span>
-                    ) : (
-                      <span className="text-amber-600">Configuration Required</span>
-                    )}
-                  </h3>
-                  <p className="text-xs opacity-80 mt-0.5">
-                    {(hasApiKey || manualApiKey) 
-                      ? "Your API key is configured. Smart Job Hunter and ATS Tailor are now fully functional."
-                      : "A Gemini API key is required to enable real-time job searching and ATS optimization features."}
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-2 w-full md:w-auto">
-                {(hasApiKey || manualApiKey) && (
-                  <button 
-                    onClick={testConnection}
-                    disabled={isTestingKey}
-                    className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${
-                      testSuccess 
-                        ? 'bg-green-600 text-white' 
-                        : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    {isTestingKey ? (
-                      <Loader2 size={16} className="animate-spin" />
-                    ) : testSuccess ? (
-                      <CheckCircle2 size={16} />
-                    ) : (
-                      <RotateCcw size={16} />
-                    )}
-                    {testSuccess ? "Connection Verified" : "Test Connection"}
-                  </button>
-                )}
-
-                {!(hasApiKey || manualApiKey) && !showManualInput && (
-                  <button 
-                    onClick={() => setShowManualInput(true)}
-                    className="flex-1 md:flex-none px-4 py-2 bg-white border border-amber-200 text-amber-700 rounded-lg text-sm font-bold hover:bg-amber-100 transition-colors"
-                  >
-                    Enter Key Manually
-                  </button>
-                )}
-                
-                <button 
-                  onClick={handleSelectKey}
-                  className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all shadow-sm ${
-                    (hasApiKey || manualApiKey)
-                      ? 'bg-white border border-green-200 text-green-700 hover:bg-green-100'
-                      : 'bg-amber-600 text-white hover:bg-amber-700'
-                  }`}
-                >
-                  {(hasApiKey || manualApiKey) ? "Change API Key" : "Select API Key"}
-                </button>
-              </div>
-            </div>
-
-            {showManualInput && (
-              <div className="mt-4 pt-4 border-t border-current border-opacity-10">
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="flex-grow relative">
-                    <input 
-                      type="password"
-                      value={manualApiKey}
-                      onChange={(e) => {
-                        setManualApiKey(e.target.value);
-                        if (e.target.value) setError(null);
-                      }}
-                      placeholder="Paste your Gemini API Key here..."
-                      className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none pr-10"
-                    />
-                    {manualApiKey && (
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-green-500">
-                        <CheckCircle2 size={16} />
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={() => {
-                        if (manualApiKey) {
-                          setShowManualInput(false);
-                          setError(null);
-                        } else {
-                          setShowManualInput(false);
-                        }
-                      }}
-                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200"
-                    >
-                      {manualApiKey ? "Save & Close" : "Cancel"}
-                    </button>
-                    <button 
-                      onClick={testConnection}
-                      disabled={isTestingKey || !manualApiKey}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {isTestingKey ? <Loader2 size={16} className="animate-spin" /> : "Test Key"}
-                    </button>
-                  </div>
-                </div>
-                <p className="mt-2 text-[10px] opacity-70">
-                  Don't have a key? Get one for free at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold">aistudio.google.com</a>
-                </p>
-              </div>
-            )}
-          </div>
-          
           {error && (
             <div className="mt-3 p-3 bg-red-50 border border-red-100 rounded-lg text-red-700 text-xs flex items-start gap-2 animate-in fade-in slide-in-from-top-1">
               <span className="font-bold">System Alert:</span>
@@ -1665,6 +1471,13 @@ export default function App() {
                       value={jobPostingUrl}
                       onChange={(e) => setJobPostingUrl(e.target.value)}
                       onBlur={() => extractJobDetails(jobPostingUrl)}
+                      onPaste={(e) => {
+                        const pastedText = e.clipboardData.getData('text');
+                        if (pastedText && (pastedText.startsWith('http://') || pastedText.startsWith('https://'))) {
+                          // Allow the default paste to happen, but trigger extraction
+                          setTimeout(() => extractJobDetails(pastedText), 50);
+                        }
+                      }}
                       className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-sm"
                       placeholder="Paste the job posting URL here (e.g. LinkedIn, Indeed...)"
                     />
