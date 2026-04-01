@@ -116,7 +116,7 @@ const CV_DATA: CvData = {
     certifications: "Certifications & Additional Info"
   },
   education: [
-    "Bachelor's Degree in Economics | Universidad del Rosario, Bogotá, Colombia | January 2013 – December 2018 | GPA: 3.99/5.0 (Academic Excellence Scholarship)",
+    "Bachelor's Degree in Economics | Universidad del Rosario, Bogotá, Colombia | January 2013 – December 2018 | Academic Excellence Scholarship",
     "Data Science Career Program | Acamica (IBM & Globant Institution), Bogotá, Colombia | September 2019 – May 2020"
   ],
   certifications: [
@@ -429,12 +429,16 @@ export default function App() {
         throw new Error("The site is blocking the scraping attempt. This often happens with highly protected sites or when bot protection is triggered.");
       }
 
-      // Pre-clean for AI: Remove large JSON blocks that Jina often includes for SPAs (like Eightfold)
-      // These are often wrapped in backticks and contain huge amounts of noise
+      // Pre-clean for AI: Remove large JSON blocks and noise that Jina often includes for SPAs (like Eightfold)
       const cleanedForAi = scrapedText
         .replace(/`\{[\s\S]*?\}`/g, '[JSON Block]') 
         .replace(/\{"themeOptions"[\s\S]*?\}/g, '[Theme JSON]')
-        .substring(0, 25000); 
+        .replace(/\{"props"[\s\S]*?\}/g, '[Props JSON]')
+        .replace(/\{"state"[\s\S]*?\}/g, '[State JSON]')
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/\n{3,}/g, '\n\n') // Collapse multiple newlines
+        .substring(0, 20000); // 20k chars is plenty for metadata extraction
 
       // Step 2: Use the cheaper Flash model to parse ONLY the metadata
       const ai = getAiInstance();
@@ -464,6 +468,7 @@ export default function App() {
         - descriptionEndSnippet: The exact last 7 words of the job description.`,
         config: {
           temperature: 0,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -480,7 +485,7 @@ export default function App() {
         }
       });
 
-      const aiTimeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("The AI model took too long to respond. Please try again.")), 25000));
+      const aiTimeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("The AI model took too long to respond. Please try again.")), 45000));
       const response = await Promise.race([aiPromise, aiTimeoutPromise]) as GenerateContentResponse;
 
       const data = JSON.parse(response.text || '{}');
