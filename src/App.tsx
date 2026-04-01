@@ -343,8 +343,11 @@ export default function App() {
       setExtractProgress(0);
       interval = setInterval(() => {
         setExtractProgress(prev => {
-          if (prev >= 95) return prev;
-          return prev + (100 - prev) * 0.15;
+          if (prev >= 99) return prev;
+          // Slow down significantly as it gets closer to 99%
+          const remaining = 100 - prev;
+          const increment = remaining > 20 ? remaining * 0.1 : remaining * 0.02;
+          return prev + increment;
         });
       }, 500);
     } else {
@@ -387,7 +390,26 @@ export default function App() {
     setError(null);
     try {
       // Step 1: Use a dedicated scraping API (Jina Reader) to extract clean markdown from the URL
-      const scrapeResponse = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
+      
+      let scrapeResponse;
+      try {
+        scrapeResponse = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
+          signal: controller.signal,
+          headers: {
+            'X-Timeout': '20' // Tell Jina to timeout after 20s
+          }
+        });
+      } catch (e: any) {
+        if (e.name === 'AbortError') {
+          throw new Error("The scraping API timed out while trying to read the page. The site might be too slow or blocking bots.");
+        }
+        throw e;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
       if (!scrapeResponse.ok) {
         throw new Error("The scraping API could not access this URL. It might be protected against bots.");
       }
@@ -1637,6 +1659,11 @@ export default function App() {
                   <p className="text-[10px] text-indigo-700 italic">
                     * Paste a link and click Extract to automatically fill the company, role, ATS, and job description fields.
                   </p>
+                  {isExtracting && extractProgress > 80 && (
+                    <p className="text-[10px] text-amber-600 font-medium mt-1 animate-pulse">
+                      Some sites (like Workday) require a full browser render and may take 15-20 seconds to load. Please wait...
+                    </p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
