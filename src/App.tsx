@@ -1721,11 +1721,15 @@ export default function App() {
                       placeholder="Paste the job posting URL here (e.g. LinkedIn, Indeed...)"
                     />
                     <button 
-                      onClick={() => {
-                        navigator.clipboard.writeText(jobPostingUrl);
-                        // Optional: show some feedback
+                      onClick={async () => {
+                        try {
+                          const text = await navigator.clipboard.readText();
+                          if (text) setJobPostingUrl(text);
+                        } catch (err) {
+                          console.error('Failed to paste:', err);
+                        }
                       }}
-                      title="Copy link to clipboard"
+                      title="Paste link from clipboard"
                       className="px-3 py-2 border border-gray-300 rounded-lg text-gray-500 hover:text-indigo-600 hover:border-indigo-600 transition-all"
                     >
                       <Clipboard size={16} />
@@ -1814,12 +1818,22 @@ export default function App() {
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-sm font-medium text-gray-700">Job Description</label>
                     <button 
-                      onClick={() => navigator.clipboard.writeText(jobDescription)}
+                      onClick={async () => {
+                        try {
+                          const text = await navigator.clipboard.readText();
+                          if (text) {
+                            setJobDescription(text);
+                            if (error) setError(null);
+                          }
+                        } catch (err) {
+                          console.error('Failed to paste:', err);
+                        }
+                      }}
                       className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 transition-colors"
-                      title="Copy job description to clipboard"
+                      title="Paste job description from clipboard"
                     >
                       <Clipboard size={14} />
-                      Copy Description
+                      Paste Description
                     </button>
                   </div>
                   <textarea 
