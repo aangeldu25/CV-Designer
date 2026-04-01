@@ -446,39 +446,70 @@ export default function App() {
       let finalJobDescription = scrapedText;
       
       // Try to extract the exact job description block
-      if (data.descriptionStartSnippet && data.descriptionEndSnippet) {
-        const buildRegex = (snippet: string) => {
-          const words = snippet.trim().split(/\s+/).filter((w: string) => w.length > 0);
-          if (words.length === 0) return null;
-          // Escape regex chars and join with whitespace matcher
-          const regexStr = words.map((w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+');
-          return new RegExp(regexStr, 'i');
-        };
-        
+      const buildRegex = (snippet: string) => {
+        // Strip markdown symbols to match words only
+        const words = snippet.replace(/[*#_[\]()>-]/g, '').trim().split(/\s+/).filter((w: string) => w.length > 0);
+        if (words.length === 0) return null;
+        // Match words separated by any whitespace or markdown symbols
+        const regexStr = words.map((w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s*#_\\[\\]()>-]+');
+        return new RegExp(regexStr, 'i');
+      };
+
+      if (data.descriptionStartSnippet) {
         const startRegex = buildRegex(data.descriptionStartSnippet);
-        const endRegex = buildRegex(data.descriptionEndSnippet);
-        
-        if (startRegex && endRegex) {
-          const startMatch = scrapedText.match(startRegex);
+        if (startRegex) {
+          const startMatch = finalJobDescription.match(startRegex);
           if (startMatch && startMatch.index !== undefined) {
-            const startIndex = startMatch.index;
-            const remainingText = scrapedText.substring(startIndex);
-            const endMatch = remainingText.match(endRegex);
-            if (endMatch && endMatch.index !== undefined) {
-              const endIndex = startIndex + endMatch.index + endMatch[0].length;
-              finalJobDescription = scrapedText.substring(startIndex, endIndex);
-            } else {
-              finalJobDescription = scrapedText.substring(startIndex);
-            }
+            finalJobDescription = finalJobDescription.substring(startMatch.index);
           }
         }
       }
 
-      // Clean up markdown images: ![alt](url)
-      finalJobDescription = finalJobDescription.replace(/!\[.*?\]\(.*?\)/g, '');
-      // Clean up markdown links: [text](url) -> text
-      finalJobDescription = finalJobDescription.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
-      // Clean up multiple newlines
+      if (data.descriptionEndSnippet) {
+        const endRegex = buildRegex(data.descriptionEndSnippet);
+        if (endRegex) {
+          const endMatch = finalJobDescription.match(endRegex);
+          if (endMatch && endMatch.index !== undefined) {
+            finalJobDescription = finalJobDescription.substring(0, endMatch.index + endMatch[0].length);
+          }
+        }
+      }
+
+      // Fallback if it's still too long and seems to have LinkedIn headers
+      if (finalJobDescription.length === scrapedText.length) {
+         const aboutMatch = finalJobDescription.match(/(About the job|Job description|Acerca del empleo|Descripción del empleo)/i);
+         if (aboutMatch && aboutMatch.index !== undefined) {
+             finalJobDescription = finalJobDescription.substring(aboutMatch.index);
+         }
+      }
+
+      // Aggressive Markdown Cleanup
+      // 1. Remove images: ![alt](url)
+      finalJobDescription = finalJobDescription.replace(/!\[.*?\]\([^)]*\)/g, '');
+      // 2. Remove links: [text](url) -> text
+      finalJobDescription = finalJobDescription.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+      // Run twice for nested links like [![alt](url)](url) which became [](url)
+      finalJobDescription = finalJobDescription.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+      // 3. Remove empty brackets
+      finalJobDescription = finalJobDescription.replace(/\[\]/g, '');
+
+      // 4. Remove typical LinkedIn footer junk if it's there
+      const footerJunk = [
+        "Explore top content on LinkedIn", 
+        "Sign in to see who you already know", 
+        "Sign in to set job alerts", 
+        "Similar jobs", 
+        "People also viewed", 
+        "Show more jobs like this"
+      ];
+      for (const junk of footerJunk) {
+         const junkIndex = finalJobDescription.indexOf(junk);
+         if (junkIndex > -1) {
+             finalJobDescription = finalJobDescription.substring(0, junkIndex);
+         }
+      }
+
+      // 5. Clean up multiple newlines
       finalJobDescription = finalJobDescription.replace(/\n{3,}/g, '\n\n').trim();
 
       setJobDescription(finalJobDescription);
