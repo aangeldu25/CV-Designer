@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Download, Edit3, Briefcase, FileText, Search, ExternalLink, Sparkles, Loader2, CheckCircle2, Wand2, RotateCcw, Plus, Check, Save, X, Link, Clipboard } from 'lucide-react';
-import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
+import { GoogleGenAI, Type, ThinkingLevel, GenerateContentResponse } from "@google/genai";
 
 // Add type declaration for AI Studio global functions
 declare global {
@@ -42,7 +42,7 @@ interface CvData {
 
 const CV_DATA: CvData = {
   firstName: "Alejandro",
-  lastName: "Angel Duque",
+  lastName: "Angel",
   location: "Bogotá, Colombia",
   address: "CLL 101 16 50 PO 110111",
   summary: "Strategic and data-driven Business Development & Strategy Leader with over 8 years of experience scaling operations, driving revenue growth, and leading cross-functional teams in fast-paced, matrixed environments (including top-tier Fintech and Telecom). Proven track record of owning P&L, formulating Go-to-Market (GTM) strategies, and negotiating high-impact partnerships to unlock new business opportunities. Adept at translating complex data into actionable strategic initiatives that optimize operational efficiency, maximize ROI, and accelerate market expansion. Fluent in English, Spanish, and Portuguese.",
@@ -168,6 +168,7 @@ export default function App() {
   const [targetCompany, setTargetCompany] = useState('');
   const [targetRole, setTargetRole] = useState('');
   const [targetAts, setTargetAts] = useState('Workday');
+  const [atsOptions, setAtsOptions] = useState(['Workday', 'Greenhouse', 'Lever', 'Taleo', 'SuccessFactors', 'Eightfold AI', 'SmartRecruiters', 'iCIMS', 'BambooHR', 'Jobvite', 'Other']);
   const [targetLanguage, setTargetLanguage] = useState('English');
   const [jobPostingUrl, setJobPostingUrl] = useState('');
   const [lastExtractedUrl, setLastExtractedUrl] = useState('');
@@ -457,7 +458,7 @@ export default function App() {
         Return a JSON object with:
         - company: The exact hiring company name.
         - role: The exact job title.
-        - ats: The ATS system used (if identifiable from the URL or text, e.g. Workday, Greenhouse, Lever, Taleo, SuccessFactors, or "Other").
+        - ats: The ATS system used (if identifiable from the URL or text, e.g. Workday, Greenhouse, Lever, Taleo, SuccessFactors, Eightfold AI, SmartRecruiters, iCIMS, or "Other").
         - language: The language the job is posted in (e.g., "English", "Spanish").
         - descriptionStartSnippet: The exact first 7 words of the job description.
         - descriptionEndSnippet: The exact last 7 words of the job description.`,
@@ -485,7 +486,24 @@ export default function App() {
       const data = JSON.parse(response.text || '{}');
       if (data.company) setTargetCompany(data.company);
       if (data.role) setTargetRole(data.role);
-      if (data.ats) setTargetAts(data.ats);
+      if (data.ats) {
+        setTargetAts(data.ats);
+        // If the AI found an ATS not in our list, add it dynamically
+        setAtsOptions(prev => {
+          if (!prev.includes(data.ats) && data.ats !== "Other") {
+            // Insert before "Other"
+            const newList = [...prev];
+            const otherIndex = newList.indexOf("Other");
+            if (otherIndex > -1) {
+              newList.splice(otherIndex, 0, data.ats);
+            } else {
+              newList.push(data.ats);
+            }
+            return newList;
+          }
+          return prev;
+        });
+      }
       if (data.language) setTargetLanguage(data.language);
       
       let finalJobDescription = scrapedText;
@@ -598,10 +616,13 @@ export default function App() {
     } catch (err: any) {
       console.error("Extraction error:", err);
       const errorMessage = err.message || String(err);
+      
       if (errorMessage.includes("API Key is missing")) {
         setError(errorMessage);
       } else if (errorMessage.includes("scraping API")) {
         setError(errorMessage);
+      } else if (errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("spending cap")) {
+        setError("AI Quota Exceeded: Your Google Cloud project has reached its spending cap or rate limit. Please check your billing settings in Google AI Studio.");
       } else if (errorMessage.includes("Unexpected token")) {
         setError("The AI returned an invalid response. Please try again.");
       } else {
@@ -1136,11 +1157,15 @@ export default function App() {
                   <div className="absolute top-0 left-0 text-[1px] text-white opacity-0 select-none pointer-events-none h-0 overflow-hidden" aria-hidden="true">
                     First Name: {currentCvData.firstName} | 
                     Last Name: {currentCvData.lastName} | 
-                    Middle Name: None | 
+                    Middle Name: Duque | 
                     Father Last Name: Angel | 
                     Mother Last Name: Duque | 
                     Location: {currentCvData.location} | 
                     Address: {currentCvData.address} | 
+                    Departamento: Bogotá D.C. | 
+                    State: Capital District (Distrito Capital) | 
+                    Department: Bogotá D.C. | 
+                    Region: Cundinamarca | 
                     Postal Code: 110111 | 
                     Country Code: +57 | 
                     Phone Number: 3174117571 | 
@@ -1758,12 +1783,9 @@ export default function App() {
                       onChange={(e) => setTargetAts(e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-sm"
                     >
-                      <option value="Workday">Workday</option>
-                      <option value="Greenhouse">Greenhouse</option>
-                      <option value="Lever">Lever</option>
-                      <option value="Taleo">Taleo</option>
-                      <option value="SuccessFactors">SuccessFactors</option>
-                      <option value="Other">Other / Generic</option>
+                      {atsOptions.map(option => (
+                        <option key={option} value={option}>{option === "Other" ? "Other / Generic" : option}</option>
+                      ))}
                     </select>
                   </div>
                   <div>
