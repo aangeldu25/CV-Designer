@@ -172,6 +172,7 @@ export default function App() {
   const [targetAts, setTargetAts] = useState('Workday');
   const [targetLanguage, setTargetLanguage] = useState('English');
   const [jobPostingUrl, setJobPostingUrl] = useState('');
+  const [lastExtractedUrl, setLastExtractedUrl] = useState('');
   const [isExtracting, setIsExtracting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [cvDataState, setCvDataState] = useState<CvData>(CV_DATA);
@@ -357,21 +358,22 @@ export default function App() {
   };
 
   const extractJobDetails = async (url: string) => {
-    if (!url) return;
+    if (!url || url === lastExtractedUrl) return;
     setIsExtracting(true);
     setError(null);
     try {
       const ai = getAiInstance();
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `Extract the following details from this job posting URL: ${url}. 
+        contents: `You are a strict web scraper. Fetch the content from this job posting URL: ${url}. 
         Return a JSON object with:
-        - company: The hiring company name.
-        - role: The job title.
+        - company: The exact hiring company name.
+        - role: The exact job title.
         - ats: The ATS system used (if identifiable, e.g. Workday, Greenhouse, Lever, Taleo, SuccessFactors, or "Other").
         - language: The language the job is posted in.
-        - jobDescription: The full, cleaned job description (remove navigation, headers, footers, and other non-job-related text).`,
+        - jobDescription: The EXACT, word-for-word job description from the page. DO NOT summarize, rephrase, or interpret. Copy the text exactly as it appears on the website.`,
         config: {
+          temperature: 0,
           tools: [{ urlContext: {} }],
           responseMimeType: "application/json",
           responseSchema: {
@@ -394,6 +396,8 @@ export default function App() {
       if (data.ats) setTargetAts(data.ats);
       if (data.language) setTargetLanguage(data.language);
       if (data.jobDescription) setJobDescription(data.jobDescription);
+      
+      setLastExtractedUrl(url);
     } catch (err: any) {
       console.error("Extraction error:", err);
       const errorMessage = err.message || String(err);
@@ -413,7 +417,7 @@ export default function App() {
       if (activeTab === 'cv' && !isExtracting) {
         try {
           const text = await navigator.clipboard.readText();
-          if (text && (text.startsWith('http://') || text.startsWith('https://')) && text !== jobPostingUrl) {
+          if (text && (text.startsWith('http://') || text.startsWith('https://')) && text !== lastExtractedUrl && text !== jobPostingUrl) {
             setJobPostingUrl(text);
             extractJobDetails(text);
           }
@@ -425,7 +429,7 @@ export default function App() {
 
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [activeTab, isExtracting, jobPostingUrl]);
+  }, [activeTab, isExtracting, jobPostingUrl, lastExtractedUrl]);
 
   const handleSmartPaste = async () => {
     try {
@@ -563,7 +567,7 @@ export default function App() {
                     items: { type: Type.STRING }
                   }
                 },
-                required: ["name", "secondLastName", "summary", "experience", "skills", "sectionTitles", "education", "certifications"]
+                required: ["firstName", "lastName", "secondLastName", "location", "address", "summary", "experience", "skills", "sectionTitles", "education", "certifications"]
               },
               fitAnalysis: {
                 type: Type.OBJECT,
