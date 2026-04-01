@@ -172,12 +172,14 @@ export default function App() {
   const [jobPostingUrl, setJobPostingUrl] = useState('');
   const [lastExtractedUrl, setLastExtractedUrl] = useState('');
   const [isExtracting, setIsExtracting] = useState(false);
+  const [extractProgress, setExtractProgress] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   const [cvDataState, setCvDataState] = useState<CvData>(CV_DATA);
   const [optimizedCv, setOptimizedCv] = useState<CvData | null>(null);
   const [fitAnalysis, setFitAnalysis] = useState<FitAnalysis | null>(null);
   const [useOptimized, setUseOptimized] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [optimizeProgress, setOptimizeProgress] = useState(0);
 
   const updateFirstName = (value: string) => {
     if (useOptimized && optimizedCv) {
@@ -335,6 +337,38 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isSearching]);
 
+  useEffect(() => {
+    let interval: any;
+    if (isExtracting) {
+      setExtractProgress(0);
+      interval = setInterval(() => {
+        setExtractProgress(prev => {
+          if (prev >= 95) return prev;
+          return prev + (100 - prev) * 0.15;
+        });
+      }, 500);
+    } else {
+      setExtractProgress(0);
+    }
+    return () => clearInterval(interval);
+  }, [isExtracting]);
+
+  useEffect(() => {
+    let interval: any;
+    if (isOptimizing) {
+      setOptimizeProgress(0);
+      interval = setInterval(() => {
+        setOptimizeProgress(prev => {
+          if (prev >= 95) return prev;
+          return prev + (100 - prev) * 0.08;
+        });
+      }, 500);
+    } else {
+      setOptimizeProgress(0);
+    }
+    return () => clearInterval(interval);
+  }, [isOptimizing]);
+
   const getAiInstance = () => {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error("API Key is missing. Please check your environment settings.");
@@ -479,7 +513,7 @@ export default function App() {
       - certifications (array of strings)`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3-flash-preview",
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -1278,7 +1312,7 @@ export default function App() {
                     {isSearchingManual ? (
                       <>
                         <Loader2 className="animate-spin" size={20} />
-                        Searching...
+                        Searching {Math.round(searchProgress)}%
                       </>
                     ) : (
                       <>
@@ -1293,11 +1327,16 @@ export default function App() {
                     className="flex-1 bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                   >
                     {isSearchingAi ? (
-                      <Loader2 className="animate-spin" size={20} />
+                      <>
+                        <Loader2 className="animate-spin" size={20} />
+                        AI Selection {Math.round(searchProgress)}%
+                      </>
                     ) : (
-                      <Sparkles size={20} />
+                      <>
+                        <Sparkles size={20} />
+                        AI Selection
+                      </>
                     )}
-                    AI Selection
                   </button>
                 </div>
 
@@ -1505,10 +1544,19 @@ export default function App() {
                     <button 
                       onClick={() => extractJobDetails(jobPostingUrl)}
                       disabled={isExtracting || !jobPostingUrl.trim()}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50 min-w-[120px] justify-center"
                     >
-                      {isExtracting ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} />}
-                      Extract
+                      {isExtracting ? (
+                        <>
+                          <Loader2 className="animate-spin" size={16} />
+                          {Math.round(extractProgress)}%
+                        </>
+                      ) : (
+                        <>
+                          <Wand2 size={16} />
+                          Extract
+                        </>
+                      )}
                     </button>
                   </div>
                   <p className="text-[10px] text-indigo-700 italic">
@@ -1607,7 +1655,7 @@ export default function App() {
                   {isOptimizing ? (
                     <>
                       <Loader2 className="animate-spin" size={20} />
-                      Optimizing CV Structure...
+                      Optimizing {Math.round(optimizeProgress)}%
                     </>
                   ) : (
                     <>
