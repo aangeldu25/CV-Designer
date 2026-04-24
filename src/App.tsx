@@ -4,6 +4,9 @@ import * as pdfjs from 'pdfjs-dist';
 import * as mammoth from 'mammoth';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { useGoogleLogin } from '@react-oauth/google';
+import { auth, db } from './firebase';
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
+import { collection, doc, setDoc, getDocs, getDoc, deleteDoc, serverTimestamp, query, where } from 'firebase/firestore';
 
 // Set PDF.js worker using local Vite import
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -20,6 +23,9 @@ declare global {
 }
 
 interface CvData {
+  id?: string;
+  uid?: string;
+  updatedAt?: string;
   firstName: string;
   lastName: string;
   location: string;
@@ -215,6 +221,7 @@ interface JobMatch {
   company: string;
   location: string;
   link: string;
+  linkedinQuery?: string;
   platform?: string;
   matchScore: number;
   reason: string;
@@ -488,6 +495,7 @@ const CompanyLogo = ({ companyName, jobUrl, logoUrl }: { companyName: string, jo
 };
 
 export default function App() {
+  const [user, setUser] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'cv' | 'hunter' | 'optimizer' | 'tracker' | 'settings'>('cv');
   const [applications, setApplications] = useState<Application[]>(() => {
     const saved = localStorage.getItem('applications');
@@ -495,7 +503,7 @@ export default function App() {
   });
   const [isSavingApp, setIsSavingApp] = useState(false);
   const [isSavingCv, setIsSavingCv] = useState(false);
-  const [isCvLoading, setIsCvLoading] = useState(false);
+  const [isCvLoading, setIsCvLoading] = useState(true);
   const [showAiGenModal, setShowAiGenModal] = useState(false);
   const [isGeneratingBase, setIsGeneratingBase] = useState(false);
   const [aiGenAnswers, setAiGenAnswers] = useState({
@@ -558,12 +566,134 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [optimizeProgress, setOptimizeProgress] = useState(0);
 
-  // Sync Applications to LocalStorage
+  // Firebase Auth Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        // Load data from Firestore
+        try {
+           setIsCvLoading(true);
+           const q = query(collection(db, 'applications'), where('uid', '==', currentUser.uid));
+           const querySnapshot = await getDocs(q);
+           const apps: Application[] = [];
+           querySnapshot.forEach((doc) => {
+             const data = doc.data();
+             apps.push({ 
+               ...data,
+               id: doc.id,
+               createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : data.createdAt,
+               updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt,
+             } as Application);
+           });
+           if (apps.length > 0) {
+             setApplications(apps.sort((a,b) => new Date(b.createdAt||0).getTime() - new Date(a.createdAt||0).getTime()));
+           } else {
+             // If Firestore is empty, try to migrate local applications to Firestore
+             const savedApps = localStorage.getItem('applications');
+             if (savedApps) {
+               try {
+                 const localApps: Application[] = JSON.parse(savedApps);
+                 if (localApps.length > 0) {
+                     const syncedApps = [];
+                     for (const app of localApps) {
+                         const newDocRef = doc(collection(db, 'applications'));
+                         const fApp = {
+                           ...app,
+                           id: newDocRef.id,
+                           uid: currentUser.uid,
+                           createdAt: new Date(app.createdAt || new Date().toISOString()),
+                           updatedAt: new Date(app.updatedAt || new Date().toISOString()),
+                         };
+                         await setDoc(newDocRef, fApp);
+                         syncedApps.push({
+                           ...fApp,
+                           createdAt: fApp.createdAt.toISOString(),
+                           updatedAt: fApp.updatedAt.toISOString(),
+                         });
+                     }
+                     setApplications(syncedApps.sort((a,b) => new Date(b.createdAt||0).getTime() - new Date(a.createdAt||0).getTime()));
+                 }
+               } catch(e) { console.error("Error migrating local apps"); }
+             }
+           }
+
+           const cvDocRef = doc(db, 'cvs', currentUser.uid);
+           const cvDocSnap = await getDoc(cvDocRef);
+           if (cvDocSnap.exists()) {
+             const data = cvDocSnap.data();
+             setCvDataState({ 
+               ...data, 
+               id: cvDocSnap.id,
+               updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt,
+             } as any);
+           } else {
+              const savedCv = localStorage.getItem('cvDataProfile_v4');
+              if (savedCv) {
+                try {
+                  const localCv = JSON.parse(savedCv);
+                  if (localCv && localCv.firstName) { // Simple check to see if it's not a blank template
+                     const firestoreData = {
+                        ...localCv,
+                        uid: currentUser.uid,
+                        updatedAt: new Date(localCv.updatedAt || new Date().toISOString()),
+                     };
+                     await setDoc(doc(db, 'cvs', currentUser.uid), firestoreData);
+                     setCvDataState({
+                         ...firestoreData,
+                         updatedAt: firestoreData.updatedAt.toISOString()
+                     } as any);
+                  }
+                } catch(e) { console.error("Error syncing cv") }
+              }
+           }
+        } catch(e) {
+          console.error("Firestore error loading data:", e);
+        } finally {
+          setIsCvLoading(false);
+        }
+      } else {
+        // If not logged in, try loading from local storage
+        const savedApps = localStorage.getItem('applications');
+        if (savedApps) {
+          setApplications(JSON.parse(savedApps));
+        } else {
+          setApplications([]);
+        }
+        
+        const savedCv = localStorage.getItem('cvDataProfile_v4');
+        if (savedCv) {
+            setCvDataState(JSON.parse(savedCv));
+        } else {
+            setCvDataState(BLANK_TEMPLATE);
+        }
+        setIsCvLoading(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const loginWithFirebase = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (e) {
+      console.error(e);
+      setError("Failed to sign in. Please try again.");
+    }
+  };
+
+  const logoutFirebase = async () => {
+    await signOut(auth);
+    // Don't wipe local storage here! Let the auth observer handle reloading local data!
+  };
+
+  // Sync Applications to LocalStorage as a backup
   useEffect(() => {
     localStorage.setItem('applications', JSON.stringify(applications));
   }, [applications]);
 
-  // Sync Base CV to LocalStorage
+  // Sync Base CV to LocalStorage as a backup
   useEffect(() => {
     localStorage.setItem('cvDataProfile_v4', JSON.stringify(cvDataState));
   }, [cvDataState]);
@@ -737,7 +867,21 @@ export default function App() {
 
     setIsSavingCv(true);
     try {
-      setCvDataState(data);
+      const updatedData = {
+        ...data,
+        updatedAt: new Date().toISOString()
+      };
+      
+      if (user) {
+        updatedData.uid = user.uid;
+        const firestoreData = {
+          ...updatedData,
+          updatedAt: new Date(updatedData.updatedAt || new Date().toISOString()),
+        };
+        await setDoc(doc(db, 'cvs', user.uid), firestoreData);
+      }
+      
+      setCvDataState(updatedData);
     } catch (err: any) {
       setError(`Failed to save CV to profile: ${err.message}`);
     } finally {
@@ -749,21 +893,40 @@ export default function App() {
     setIsSavingApp(true);
     try {
       const now = new Date().toISOString();
+      let updatedApp: Application;
       if (appData.id) {
+        const existingApp = applications.find(a => a.id === appData.id);
+        updatedApp = { ...existingApp, ...appData, updatedAt: now } as Application;
+        
         setApplications(prev => prev.map(app => 
-          app.id === appData.id ? { ...app, ...appData, updatedAt: now } as Application : app
+          app.id === appData.id ? updatedApp : app
         ));
       } else {
-        const newApp: Application = {
+        updatedApp = {
           ...appData as any,
-          id: Date.now().toString(),
-          uid: 'local',
+          id: Date.now().toString(), // local fallback
+          uid: user ? user.uid : 'local',
           status: appData.status || 'IDENTIFIED',
           createdAt: now,
           updatedAt: now
         };
-        setApplications(prev => [newApp, ...prev]);
+        // wait for firestore to generate ID if needed
+        if (user) {
+            const newDocRef = doc(collection(db, 'applications'));
+            updatedApp.id = newDocRef.id;
+        }
+        setApplications(prev => [updatedApp, ...prev]);
       }
+      
+      if (user) {
+         const firestoreApp = {
+           ...updatedApp,
+           createdAt: new Date(updatedApp.createdAt || new Date().toISOString()),
+           updatedAt: new Date(updatedApp.updatedAt || new Date().toISOString()),
+         };
+         await setDoc(doc(db, 'applications', updatedApp.id), firestoreApp);
+      }
+      
       setShowAppModal(false);
       setEditingApp(null);
     } catch (err) {
@@ -777,6 +940,9 @@ export default function App() {
   const deleteApplication = async (id: string) => {
     if (!window.confirm("Are you sure you want to delete this application?")) return;
     try {
+      if (user) {
+         await deleteDoc(doc(db, 'applications', id));
+      }
       setApplications(prev => prev.filter(app => app.id !== id));
     } catch (err) {
       console.error("Delete Error:", err);
@@ -1769,6 +1935,24 @@ Return ONLY a JSON object:
                !link.includes('company.com') &&
                link.startsWith('http');
       });
+
+      // Enhance all results with bullet-proof aggregator search queries
+      results = results.map(job => {
+        const query = encodeURIComponent(`"${job.title}" "${job.company}" ${job.location}`);
+        const linkedinLink = `https://www.linkedin.com/jobs/search/?keywords=${query}`;
+        
+        // If the link from Gemini is likely hallucinated or wasn't verified by grounding, fall back to a Google Job Search query
+        const isVerified = job.tags && job.tags.includes('Verified Link');
+        const finalLink = isVerified ? job.link : `https://www.google.com/search?q=${query}&ibp=htl;jobs`;
+        const platform = isVerified ? job.platform : 'Google Jobs';
+
+        return {
+          ...job,
+          link: finalLink,
+          platform: platform,
+          linkedinQuery: linkedinLink,
+        };
+      });
       
       if (results.length === 0) {
         throw new Error("No matching jobs were found for your search criteria. Try broadening your search terms.");
@@ -1892,6 +2076,21 @@ Return ONLY a JSON object:
               </button>
             </div>
             <div className="flex items-center gap-4">
+              {user ? (
+                <div className="flex items-center gap-3 bg-gray-50 px-3 py-1.5 rounded-full border border-gray-100">
+                  <span className="text-xs font-medium text-gray-700 flex items-center gap-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    {user.email || 'Synced'}
+                  </span>
+                  <button onClick={logoutFirebase} title="Sign Out" className="flex items-center gap-1 text-gray-400 hover:text-red-500 transition-colors">
+                    <LogOut size={14} />
+                  </button>
+                </div>
+              ) : (
+                 <button onClick={loginWithFirebase} className="flex items-center gap-2 text-sm text-indigo-600 bg-indigo-50 px-4 py-1.5 rounded-full hover:bg-indigo-100 transition-colors font-semibold">
+                   <LogIn size={16} /> Cloud Sync
+                 </button>
+              )}
               <span className="text-[10px] font-bold text-white bg-indigo-600 px-2 py-0.5 rounded-full">BETA</span>
             </div>
           </div>
@@ -3005,14 +3204,26 @@ Return ONLY a JSON object:
                           </div>
                         </div>
 
-                        <a 
-                          href={job.link} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 text-blue-600 font-semibold hover:text-blue-800 transition-colors text-sm"
-                        >
-                          View on {job.platform || 'Platform'} <ExternalLink size={14} />
-                        </a>
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 justify-between w-full sm:w-auto">
+                          <a 
+                            href={job.link} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 text-blue-600 font-semibold hover:text-blue-800 transition-colors text-sm bg-blue-50 px-4 py-2 rounded-lg hover:bg-blue-100"
+                          >
+                            View on {job.platform || 'Platform'} <ExternalLink size={14} />
+                          </a>
+                          {job.linkedinQuery && (
+                            <a
+                              href={job.linkedinQuery}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2 text-gray-600 font-medium hover:text-blue-700 transition-colors text-sm px-4 py-2 border border-gray-200 rounded-lg shrink-0"
+                            >
+                              Search LinkedIn <Search size={14} />
+                            </a>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
