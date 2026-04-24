@@ -494,6 +494,25 @@ const CompanyLogo = ({ companyName, jobUrl, logoUrl }: { companyName: string, jo
   );
 };
 
+export const getSuccessProbability = (app: Application) => {
+  if (app.status === 'REJECTED') return 0;
+  if (app.status === 'OFFER' || app.status === 'ACCEPTED') return 100;
+  
+  let baseScore = app.fitScore || 50;
+  const daysSinceApplied = Math.floor((new Date().getTime() - new Date(app.dateApplied || app.createdAt || Date.now()).getTime()) / (1000 * 3600 * 24));
+
+  if (app.status === 'INTERVIEW' || app.status === 'ASSESSMENT') baseScore = Math.min(baseScore + 20, 90);
+  if (app.status === 'SCREENING') baseScore = Math.min(baseScore + 10, 80);
+  
+  if (app.status === 'APPLIED') {
+    if (daysSinceApplied > 30) baseScore -= 40;
+    else if (daysSinceApplied > 14) baseScore -= 20;
+    else if (daysSinceApplied > 7) baseScore -= 10;
+  }
+  
+  return Math.max(0, Math.min(100, Math.round(baseScore)));
+};
+
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'cv' | 'hunter' | 'optimizer' | 'tracker' | 'settings'>('cv');
@@ -519,16 +538,9 @@ export default function App() {
   const [showAppModal, setShowAppModal] = useState(false);
   const [editingApp, setEditingApp] = useState<Application | null>(null);
   
-  // Gmail Auto-Sync State
+  // Sync Gmail State (Hidden from UI but present functionally)
   const [gmailToken, setGmailToken] = useState<string | null>(null);
   const [isSyncingGmail, setIsSyncingGmail] = useState(false);
-  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(() => {
-    const saved = localStorage.getItem('lastGmailSyncTime');
-    return saved ? new Date(saved) : null;
-  });
-  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(() => {
-    return localStorage.getItem('gmailAutoSyncEnabled') === 'true';
-  });
 
   const [isSearchingManual, setIsSearchingManual] = useState(false);
   const [isSearchingAi, setIsSearchingAi] = useState(false);
@@ -1184,10 +1196,6 @@ export default function App() {
     };
   };
 
-  const loginGmail = () => {
-    loginWithFirebase();
-  };
-
   const syncGmailWithToken = async (token: string) => {
     setIsSyncingGmail(true);
     try {
@@ -1202,16 +1210,16 @@ export default function App() {
       let newAppsState = [...applications];
 
       for (let app of activeApps) {
-        // Find emails in the last 14 days mentioning the company
-        const query = `"${app.companyName}" (interview OR action OR update OR application OR status OR offer) newer_than:14d`;
-        const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=3`, {
+        // Find emails in the last 30 days mentioning the company
+        const query = `"${app.companyName}" newer_than:30d`;
+        const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=2`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         
         if (!res.ok) {
           if (res.status === 401) {
             setGmailToken(null);
-            throw new Error("Gmail token expired. Please reconnect.");
+            console.error("Gmail token expired. Please reconnect.");
           }
           continue;
         }
@@ -1219,45 +1227,48 @@ export default function App() {
         const data = await res.json();
         if (!data.messages || data.messages.length === 0) continue;
 
-        // Fetch actual message content for the most recent email on this topic
-        const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${data.messages[0].id}?format=full`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const msgData = await msgRes.json();
-        
-        // Extract basic text body (very simplified for snippet)
-        let emailBody = '';
-        if (msgData.payload?.parts) {
-          const textPart = msgData.payload.parts.find((p: any) => p.mimeType === 'text/plain');
-          if (textPart?.body?.data) {
-             emailBody = atob(textPart.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+        let combinedEmails = '';
+
+        for (let msgInfo of data.messages) {
+          const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgInfo.id}?format=full`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const msgData = await msgRes.json();
+          
+          let emailBody = '';
+          if (msgData.payload?.parts) {
+            const textPart = msgData.payload.parts.find((p: any) => p.mimeType === 'text/plain');
+            if (textPart?.body?.data) {
+               emailBody = atob(textPart.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+            }
+          } else if (msgData.payload?.body?.data) {
+             emailBody = atob(msgData.payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
           }
-        } else if (msgData.payload?.body?.data) {
-           emailBody = atob(msgData.payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+          combinedEmails += `\n---\n${emailBody.substring(0, 1500)}`;
         }
         
-        if (!emailBody) continue;
+        if (!combinedEmails.trim()) continue;
 
         // Use AI to extract status
         const ai = await getAiInstance();
-        const prompt = `You are reading an email from "${app.companyName}" regarding a job application for "${app.jobTitle}".
+        const prompt = `You are reading recent emails regarding a job application for the role "${app.jobTitle}" at "${app.companyName}".
         
-Email content snippet (first 1500 chars):
-${emailBody.substring(0, 1500)}
+Email Content Snippets:
+${combinedEmails}
 
-Determine if this email implies a clear status change for the candidate. 
+Determine if these emails imply a clear status change or update for the candidate's application. Focus heavily on rejection notices, interview invitations, or progression to next rounds.
 The possible statuses are:
-- REJECTED
-- OFFER
-- INTERVIEW (an interview is being scheduled)
-- SCREENING (asking for an assessment, test, or pre-screen call)
-- APPLIED (just a confirmation of application)
-- UNCHANGED (this is mostly marketing, generic newsletter, or doesn't change the status from '${app.status}')
+- REJECTED (The company explicitly stated they are not moving forward)
+- OFFER (The company explicitly extended an offer)
+- INTERVIEW (The company wants to schedule a synchronous interview call or meeting)
+- ASSESSMENT (The company sent a take-home test or automated assessment)
+- SCREENING (The company sent a questionnaire or pre-screen)
+- UNCHANGED (No clear status change, or just a generic marketing/newsletter email)
 
 Return ONLY a JSON object:
 {
   "newStatus": "STATUS_NAME",
-  "reason": "Brief one sentence explanation"
+  "reason": "Very brief one sentence explanation of the email content"
 }`;
 
         const response = await ai.models.generateContent({
@@ -1296,11 +1307,6 @@ Return ONLY a JSON object:
         setApplications(newAppsState);
         localStorage.setItem('applications', JSON.stringify(newAppsState));
       }
-      
-      const now = new Date();
-      setLastSyncTime(now);
-      localStorage.setItem('lastGmailSyncTime', now.toISOString());
-
     } catch(err: any) {
       console.error(err);
       setError(err.message || "Failed to sync Gmail.");
@@ -1310,65 +1316,16 @@ Return ONLY a JSON object:
   };
 
   useEffect(() => {
-    let interval: any;
-    if (autoSyncEnabled && gmailToken) {
-      // Run every hour
-      interval = setInterval(() => {
-        syncGmailWithToken(gmailToken);
-      }, 60 * 60 * 1000);
+    if (gmailToken) {
+      syncGmailWithToken(gmailToken);
     }
+    // Set a lightweight cadence, but without the token it won't do anything
+    // Token expires typically in 1 hour if not persisted by the library.
+    const interval = setInterval(() => {
+      if (gmailToken) syncGmailWithToken(gmailToken);
+    }, 60 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [autoSyncEnabled, gmailToken]);
-
-  const evaluateFitScore = async (app: Application) => {
-    setIsSavingApp(true);
-    try {
-      const ai = await getAiInstance();
-      const prompt = `You are an expert HR Talent Acquisition Specialist evaluating a candidate's probability of securing an offer at ${app.companyName} for the role of "${app.jobTitle}".
-      
-      Using the following parameters, calculate a realistic probabilistic Fit Score (0-100%) for the candidate:
-      1. Candidate Profile: Assess the overall fit based on the CV. (Reference Profile: ${cvDataState.summary.substring(0, 1000)}...)
-      2. Status Advance: The application is currently in the '${app.status}' stage. (Higher stages like INTERVIEW or OFFER drastically increase probability. IDENTIFIED limits it).
-      3. Company Competitiveness: Consider how difficult it is to pass ${app.companyName}'s selection process based on general Internet knowledge and forums (e.g., passing FAANG is sub-1%, local startup is higher).
-      4. Cultural Fit: How well does the candidate's profile align with ${app.companyName}'s typical hires & culture?
-      
-      Return ONLY a valid JSON object with:
-      {
-        "score": number (0-100),
-        "reason": "One sentence explaining why you assigned this specific probability score considering all factors."
-      }`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              score: { type: Type.NUMBER },
-              reason: { type: Type.STRING }
-            },
-            required: ["score", "reason"]
-          }
-        }
-      });
-      
-      if(response.text) {
-        const result = JSON.parse(response.text);
-        saveApplication({
-          ...app,
-          fitScore: result.score,
-          notes: app.notes ? `${app.notes}\n\n[AI Probability Evaluation]: ${result.reason}` : `[AI Probability Evaluation]: ${result.reason}`
-        });
-      }
-    } catch(err) {
-      console.error(err);
-      setError("Failed to evaluate probabilty score.");
-    } finally {
-      setIsSavingApp(false);
-    }
-  };
+  }, [gmailToken]);
 
   const currentCvData = useOptimized && optimizedCv ? optimizedCv : cvDataState;
 
@@ -2166,63 +2123,6 @@ Return ONLY a JSON object:
               </div>
             </div>
 
-            {/* Gmail Auto-Sync Control Bar */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${gmailToken ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-500'}`}>
-                  <Mail size={20} />
-                </div>
-                <div>
-                  <h3 className="font-bold text-gray-900 leading-tight">Gmail Auto-Sync</h3>
-                  <p className="text-xs text-gray-500">Automatically check for status updates & rejections.</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-3 w-full md:w-auto">
-                {gmailToken ? (
-                  <>
-                    <div className="text-right hidden sm:block mr-2">
-                       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Last Sync</p>
-                       <p className="text-xs text-gray-700">{lastSyncTime ? lastSyncTime.toLocaleTimeString() : 'Never'}</p>
-                    </div>
-                    <label className="flex items-center gap-2 cursor-pointer mr-2">
-                      <div className="relative">
-                        <input type="checkbox" className="sr-only" checked={autoSyncEnabled} onChange={(e) => {
-                          setAutoSyncEnabled(e.target.checked);
-                          localStorage.setItem('gmailAutoSyncEnabled', String(e.target.checked));
-                        }} />
-                        <div className={`block w-10 h-6 rounded-full transition-colors ${autoSyncEnabled ? 'bg-red-500' : 'bg-gray-300'}`}></div>
-                        <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${autoSyncEnabled ? 'transform translate-x-4' : ''}`}></div>
-                      </div>
-                      <span className="text-xs font-bold text-gray-700">Hourly</span>
-                    </label>
-                    <button 
-                      onClick={() => syncGmailWithToken(gmailToken)}
-                      disabled={isSyncingGmail}
-                      className="px-3 py-1.5 flex items-center gap-2 bg-red-50 text-red-600 border border-red-100 rounded-lg hover:bg-red-100 font-bold text-xs disabled:opacity-50 transition-colors"
-                    >
-                      {isSyncingGmail ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} 
-                      <span className="hidden sm:inline">Sync Now</span>
-                    </button>
-                    <button 
-                      onClick={() => { setGmailToken(null); setAutoSyncEnabled(false); localStorage.removeItem('gmailAutoSyncEnabled'); }}
-                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-50 rounded-lg transition-colors"
-                      title="Disconnect Gmail"
-                    >
-                      <LogOut size={16} />
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => loginGmail()}
-                    className="w-full md:w-auto px-4 py-2 flex items-center justify-center gap-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-bold text-sm shadow-sm transition-colors"
-                  >
-                    <Mail size={16} /> Connect Gmail
-                  </button>
-                )}
-              </div>
-            </div>
-
             {/* Tracker Controls */}
             <div className="flex flex-col md:flex-row gap-4 mb-6 items-center justify-between">
               <div className="flex flex-1 gap-2 w-full">
@@ -2319,29 +2219,12 @@ Return ONLY a JSON object:
                             <option value="B">TIER B</option>
                             <option value="C">TIER C</option>
                           </select>
-                          {app.fitScore != null && (
-                            <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded">
+                          {getSuccessProbability(app) > 0 && (
+                            <span className={`flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 border rounded ${getSuccessProbability(app) >= 70 ? 'bg-green-50 text-green-700 border-green-100' : 'bg-indigo-50 text-indigo-700 border-indigo-100'}`}>
                               <Sparkles size={10} />
-                              {app.fitScore}% FIT
+                              {getSuccessProbability(app)}% SUCCESS
                             </span>
                           )}
-                          <button
-                            onClick={() => evaluateFitScore(app)}
-                            disabled={isSavingApp}
-                            title="Calculate Advanced Probabilistic Fit Score using AI"
-                            className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-100 rounded hover:bg-purple-100 transition-colors flex items-center gap-1 disabled:opacity-50"
-                          >
-                            <Brain size={10} /> Predict
-                          </button>
-                          <a 
-                            href={`https://mail.google.com/mail/u/0/#search/${encodeURIComponent(`"${app.companyName}" (interview OR application OR applied OR update OR status OR rejected OR offer OR candidate OR role OR next steps OR action required)`)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 bg-red-50 text-red-600 border border-red-100 rounded hover:bg-red-100 transition-colors flex items-center gap-1"
-                            title="Search Gmail for updates related to this company"
-                          >
-                            <Mail size={10} /> Check Gmail
-                          </a>
                         </div>
                       </div>
                     </div>
