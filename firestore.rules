@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: applications
+    // Document ID: auto-generated
+    // Fields:
+    //   - companyName: string (required)
+    //   - jobTitle: string (required)
+    //   - seniorityLevel: string (optional)
+    //   - location: string (optional)
+    //   - workMode: string (optional)
+    //   - source: string (optional)
+    //   - deadline: string (optional, date format)
+    //   - dateApplied: string (optional, date format)
+    //   - status: string (required, enum: IDENTIFIED, RESEARCHING, APPLIED, SCREENING, INTERVIEW, ASSESSMENT, OFFER, REJECTED, ACCEPTED)
+    //   - jobUrl: string (optional)
+    //   - cvVersion: string (optional)
+    //   - salaryRange: string (optional)
+    //   - salaryExpectation: string (optional)
+    //   - recruiterName: string (optional)
+    //   - internalConnection: boolean (optional)
+    //   - referralSource: string (optional)
+    //   - fitScore: integer (optional, 1-5)
+    //   - priorityTier: string (optional, enum: A, B, C)
+    //   - nextAction: string (optional)
+    //   - nextActionDate: string (optional, date format)
+    //   - notes: string (optional)
+    //   - uid: string (required, must match auth.uid)
+    //   - createdAt: timestamp (required)
+    //   - updatedAt: timestamp (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isValidApplication(data) {
+      let requiredFields = ['companyName', 'jobTitle', 'status', 'uid', 'createdAt', 'updatedAt'];
+      let validStatuses = ['IDENTIFIED', 'RESEARCHING', 'APPLIED', 'SCREENING', 'INTERVIEW', 'ASSESSMENT', 'OFFER', 'REJECTED', 'ACCEPTED'];
+      let validTiers = ['A', 'B', 'C'];
+
+      return data.keys().hasAll(requiredFields) &&
+             data.companyName is string && data.companyName.size() > 0 && data.companyName.size() < 200 &&
+             data.jobTitle is string && data.jobTitle.size() > 0 && data.jobTitle.size() < 200 &&
+             data.status in validStatuses &&
+             data.uid == request.auth.uid &&
+             (!('priorityTier' in data) || data.priorityTier in validTiers) &&
+             (!('fitScore' in data) || (data.fitScore is int && data.fitScore >= 1 && data.fitScore <= 5)) &&
+             (!('internalConnection' in data) || data.internalConnection is bool) &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidCv(data) {
+      let requiredFields = ['firstName', 'lastName', 'uid', 'updatedAt'];
+      return data.keys().hasAll(requiredFields) &&
+             data.firstName is string && data.firstName.size() > 0 &&
+             data.lastName is string && data.lastName.size() > 0 &&
+             data.uid == request.auth.uid &&
+             data.updatedAt is timestamp;
+    }
+
+    match /applications/{applicationId} {
+      allow read: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow create: if isAuthenticated() && isValidApplication(request.resource.data);
+      allow update: if isAuthenticated() && isDocOwner() && isValidApplication(request.resource.data) &&
+                      request.resource.data.createdAt == resource.data.createdAt &&
+                      request.resource.data.uid == resource.data.uid;
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+
+    match /cvs/{userId} {
+      allow read: if isAuthenticated() && userId == request.auth.uid;
+      allow write: if isAuthenticated() && userId == request.auth.uid && isValidCv(request.resource.data);
+    }
+  }
+}
