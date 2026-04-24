@@ -677,9 +677,16 @@ export default function App() {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      setError("Failed to sign in. Please try again.");
+      if (e.code === 'auth/unauthorized-domain') {
+         setError("Login failed: Unauthorized domain. Please add this URL to the Authorized Domains in your Firebase Authentication settings.");
+      } else if (e.code === 'auth/popup-closed-by-user') {
+         // Do nothing or clear error
+         setError(null);
+      } else {
+         setError(`Failed to sign in: ${e.message || "Please try again."}`);
+      }
     }
   };
 
@@ -1856,7 +1863,7 @@ Return ONLY a JSON object:
       Sort results with the highest matchScore and most relevant first.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-preview", 
+        model: "gemini-3-flash-preview", 
         contents: prompt,
         config: {
           responseMimeType: "application/json",
