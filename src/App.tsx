@@ -1150,20 +1150,27 @@ export default function App() {
   }, [isOptimizing]);
 
   const getAiInstance = async () => {
-    let apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey && window.aistudio) {
-      const hasKey = await window.aistudio.hasSelectedApiKey();
-      if (!hasKey) {
-        await window.aistudio.openSelectKey();
+    return {
+      models: {
+        generateContent: async (params: any) => {
+          const res = await fetch('/api/gemini', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+          });
+          if (!res.ok) {
+             const err = await res.json().catch(() => ({}));
+             throw new Error(err.error || `Server error: ${res.statusText}`);
+          }
+          const data = await res.json();
+          // Polyfill .text getter if that's what other code expects
+          if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0].text && !data.text) {
+             data.text = data.candidates[0].content.parts[0].text;
+          }
+          return data;
+        }
       }
-      apiKey = process.env.GEMINI_API_KEY;
-    }
-    
-    if (!apiKey) {
-      throw new Error("No Gemini API key available");
-    }
-    
-    return new GoogleGenAI({ apiKey });
+    };
   };
 
   const loginGmail = useGoogleLogin({
