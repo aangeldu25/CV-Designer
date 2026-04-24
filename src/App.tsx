@@ -3,7 +3,7 @@ import { Download, Edit3, Briefcase, FileText, Search, ExternalLink, Sparkles, L
 import * as pdfjs from 'pdfjs-dist';
 import * as mammoth from 'mammoth';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { useGoogleLogin } from '@react-oauth/google';
+
 import { auth, db } from './firebase';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
 import { collection, doc, setDoc, getDocs, getDoc, deleteDoc, serverTimestamp, query, where } from 'firebase/firestore';
@@ -676,7 +676,13 @@ export default function App() {
   const loginWithFirebase = async () => {
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        setGmailToken(credential.accessToken);
+        syncGmailWithToken(credential.accessToken);
+      }
     } catch (e: any) {
       console.error(e);
       if (e.code === 'auth/unauthorized-domain') {
@@ -926,11 +932,16 @@ export default function App() {
       }
       
       if (user) {
-         const firestoreApp = {
+         const firestoreApp: any = {
            ...updatedApp,
            createdAt: new Date(updatedApp.createdAt || new Date().toISOString()),
            updatedAt: new Date(updatedApp.updatedAt || new Date().toISOString()),
          };
+         Object.keys(firestoreApp).forEach(key => {
+           if (firestoreApp[key] === undefined) {
+             delete firestoreApp[key];
+           }
+         });
          await setDoc(doc(db, 'applications', updatedApp.id), firestoreApp);
       }
       
@@ -1173,14 +1184,9 @@ export default function App() {
     };
   };
 
-  const loginGmail = useGoogleLogin({
-    onSuccess: (tokenResponse) => {
-      setGmailToken(tokenResponse.access_token);
-      syncGmailWithToken(tokenResponse.access_token);
-    },
-    scope: 'https://www.googleapis.com/auth/gmail.readonly',
-    onError: () => setError('Google Login Failed')
-  });
+  const loginGmail = () => {
+    loginWithFirebase();
+  };
 
   const syncGmailWithToken = async (token: string) => {
     setIsSyncingGmail(true);
@@ -1849,7 +1855,7 @@ Return ONLY a JSON object:
       CRITICAL SEARCH STRATEGY:
       - YOU MUST USE GOOGLE SEARCH to find actual, real, currently open job listings online that match these filters.
       - DO NOT generate fake roles. ALL JOBS MUST BE REAL. 
-      - The 'link' field MUST be the exact, real, verified URL to the job posting that you found in your search.
+      - The 'link' field MUST be the exact, REAL, DIRECT URL to the job posting (e.g., greenhouse.io, lever.co, workday, direct linkedin job posting). Do NOT return google search URLs (google.com/search) as the link.
       - Ensure the jobs are highly relevant to the candidate's core skills and target seniority. Ignore irrelevant roles.
       
       CANDIDATE PROFILE:
@@ -1860,8 +1866,8 @@ Return ONLY a JSON object:
       After finding the real jobs via web search, analyze them against the candidate's profile to calculate a realistic matchScore.
       
       Return exactly a JSON array of objects with these fields. 
-      - title, company, location, platform (e.g. "LinkedIn", "Indeed", "Company Website"), matchScore (0-100), reason (why it matches), customPitch (2-sentence application pitch).
-      - link (MUST be the REAL working URL from your web search)
+      - title, company, location, platform (e.g. "LinkedIn", "Greenhouse", "Company Website"), matchScore (0-100), reason (why it matches), customPitch (2-sentence application pitch).
+      - link (MUST be the REAL working URL from your web search, NOT a google search URL)
       - postedDate: (e.g. "2 days ago", "Today")
       - applicantCount: (estimated number of applicants if available, or 0)
       - tags: (array of strings like "Top Company", "Verified Source", "Startup")
@@ -1933,8 +1939,13 @@ Return ONLY a JSON object:
           });
           
           if (match && match.web && match.web.uri) {
-            // Replace the hallucinated link with the real, verified Google Search link
-            return { ...job, link: match.web.uri, tags: [...(job.tags || []), 'Verified Link'] };
+            // Only replace if the grounding chunk has a better direct link, or we have a dummy link
+            const isMatchDirect = !match.web.uri.includes('google.com/search') && !match.web.uri.includes('ibp=htl');
+            const isCurrentDummy = !job.link || job.link.includes('example.com') || job.link.includes('yourcompany') || !job.link.startsWith('http');
+            
+            if (isMatchDirect || isCurrentDummy) {
+              return { ...job, link: match.web.uri, tags: [...(job.tags || []), 'Verified Link'] };
+            }
           }
           return job;
         });
@@ -1955,10 +1966,18 @@ Return ONLY a JSON object:
         const query = encodeURIComponent(`"${job.title}" "${job.company}" ${job.location}`);
         const linkedinLink = `https://www.linkedin.com/jobs/search/?keywords=${query}`;
         
-        // If the link from Gemini is likely hallucinated or wasn't verified by grounding, fall back to a Google Job Search query
-        const isVerified = job.tags && job.tags.includes('Verified Link');
-        const finalLink = isVerified ? job.link : `https://www.google.com/search?q=${query}&ibp=htl;jobs`;
-        const platform = isVerified ? job.platform : 'Google Jobs';
+        const isGoogleJobsLink = job.link.includes('google.com/search') || job.link.includes('ibp=htl');
+        const isDummyLink = !job.link || job.link.includes('example.com') || job.link.includes('yourcompany') || !job.link.startsWith('http');
+        
+        let finalLink = job.link;
+        let platform = job.platform;
+
+        // If it's a google jobs link or dummy link, prefer the LinkedIn search pipeline to ensure direct-ish access
+        // Avoid Google Jobs URLs entirely if possible
+        if (isGoogleJobsLink || isDummyLink) {
+            finalLink = linkedinLink;
+            platform = 'LinkedIn Search';
+        }
 
         return {
           ...job,

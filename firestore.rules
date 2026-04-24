@@ -61,7 +61,7 @@ service cloud.firestore {
              data.status in validStatuses &&
              data.uid == request.auth.uid &&
              (!('priorityTier' in data) || data.priorityTier in validTiers) &&
-             (!('fitScore' in data) || (data.fitScore is int && data.fitScore >= 1 && data.fitScore <= 5)) &&
+             (!('fitScore' in data) || (data.fitScore is number && data.fitScore >= 0 && data.fitScore <= 100)) &&
              (!('internalConnection' in data) || data.internalConnection is bool) &&
              data.createdAt is timestamp &&
              data.updatedAt is timestamp;
